@@ -3632,3 +3632,110 @@ class SuperchargedMMM(BaseMMM):
             )
         
         return config
+    
+    def plot_components_contributions(
+        self, original_scale: bool = False, **plt_kwargs: Any
+    ) -> plt.Figure:
+        """Plot the target variable and the posterior predictive model components.
+        
+        This method extends the parent implementation to include monthly and weekly
+        seasonality contributions.
+        
+        Parameters
+        ----------
+        original_scale : bool, optional
+            Whether to plot in the original scale.
+        **plt_kwargs
+            Additional keyword arguments to pass to `plt.subplots`.
+        
+        Returns
+        -------
+        plt.Figure
+            Figure with component contributions plotted.
+        """
+        # Collect contributions and their HDIs
+        channel_contribution = self.get_ts_contribution_posterior(
+            var_contribution="channel_contribution", original_scale=original_scale
+        )
+        
+        means = [channel_contribution.mean(["chain", "draw"])]
+        contribution_vars = [
+            az.hdi(channel_contribution, hdi_prob=DEFAULT_HDI_PROB).channel_contribution
+        ]
+        contribution_names = ["channel_contribution"]
+        
+        # Add optional contributions (controls and all seasonality types)
+        component_mapping = [
+            ("control_columns", "control_contribution", "control_contribution"),
+            ("yearly_seasonality", "fourier_contribution", "yearly_seasonality"),
+            ("monthly_seasonality", "monthly_seasonality_contribution", "monthly_seasonality"),
+            ("weekly_seasonality", "weekly_seasonality_contribution", "weekly_seasonality"),
+        ]
+        
+        for attr_name, var_name, display_name in component_mapping:
+            if getattr(self, attr_name, None):
+                contributions = self.get_ts_contribution_posterior(
+                    var_contribution=var_name, original_scale=original_scale
+                )
+                means.append(contributions.mean(["chain", "draw"]))
+                contribution_vars.append(
+                    az.hdi(contributions, hdi_prob=DEFAULT_HDI_PROB)[var_name]
+                )
+                contribution_names.append(display_name)
+        
+        # Create plot
+        fig, ax = plt.subplots(**plt_kwargs)
+        
+        if self.X is None:
+            return fig
+        
+        dates = self.X[self.date_column]
+        
+        # Plot contributions
+        for i, (mean, hdi, var_name) in enumerate(
+            zip(means, contribution_vars, contribution_names, strict=False)
+        ):
+            ax.fill_between(
+                x=dates,
+                y1=hdi.isel(hdi=0),
+                y2=hdi.isel(hdi=1),
+                color=f"C{i}",
+                alpha=0.25,
+                label=f"$94\\%$ HDI ({var_name})",
+            )
+            ax.plot(dates, np.asarray(mean), color=f"C{i}")
+        
+        # Plot intercept
+        intercept_mean, intercept_hdi = self._get_intercept_for_plot(original_scale)
+        color_idx = len(means)
+        
+        # Use scalar intercept if possible, otherwise array
+        if np.ndim(intercept_mean) == 0:
+            # Scalar intercept - matplotlib handles broadcasting automatically
+            ax.axhline(y=intercept_mean, color=f"C{color_idx}")
+        else:
+            # Time-varying intercept
+            ax.plot(dates, intercept_mean, color=f"C{color_idx}")
+        
+        ax.fill_between(
+            x=dates,
+            y1=intercept_hdi[:, 0],
+            y2=intercept_hdi[:, 1],
+            color=f"C{color_idx}",
+            alpha=0.25,
+            label="$94\\%$ HDI (intercept)",
+        )
+        
+        # Plot target
+        y_to_plot = self._get_target_for_plot(original_scale)
+        ylabel = self.output_var if original_scale else f"{self.output_var} scaled"
+        
+        ax.plot(dates, y_to_plot, label=ylabel, color="black")
+        ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.1), ncol=3)
+        ax.set(
+            title="Posterior Predictive Model Components (with Enhanced Seasonality)",
+            xlabel="date",
+            ylabel=ylabel,
+        )
+        
+        return fig

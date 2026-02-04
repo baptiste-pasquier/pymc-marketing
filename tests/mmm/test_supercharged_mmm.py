@@ -162,3 +162,17 @@ class TestSuperchargedMMM:
         config = model.default_model_config
         assert "gamma_monthly_fourier" in config
         assert "gamma_weekly_fourier" in config
+
+    def test_plot_components_contributions_method_exists(self):
+        """Test that plot_components_contributions method exists and is callable."""
+        model = SuperchargedMMM(
+            date_column="date",
+            channel_columns=["channel_1", "channel_2"],
+            adstock=GeometricAdstock(l_max=4),
+            saturation=LogisticSaturation(),
+            monthly_seasonality=1,
+            weekly_seasonality=1,
+        )
+        
+        assert hasattr(model, "plot_components_contributions")
+        assert callable(model.plot_components_contributions)
