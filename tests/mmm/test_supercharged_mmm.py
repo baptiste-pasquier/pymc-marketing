@@ -194,6 +194,7 @@ class TestSuperchargedMMM:
             "optimize_budget",
             "get_channel_contributions_forward_pass",
             "compute_channel_contribution_forward_pass",
+            "get_ts_contribution_posterior",  # Method that was missing
         ]
         
         for method_name in mmm_methods:
