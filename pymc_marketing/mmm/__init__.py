@@ -58,7 +58,7 @@ from pymc_marketing.mmm.media_transformation import (
     MediaConfigList,
     MediaTransformation,
 )
-from pymc_marketing.mmm.mmm import MMM
+from pymc_marketing.mmm.mmm import MMM, SuperchargedMMM
 from pymc_marketing.mmm.preprocessing import (
     preprocessing_method_X,
     preprocessing_method_y,
@@ -101,6 +101,7 @@ __all__ = [
     "SaturationTransformation",
     "SensitivityAnalysis",
     "SoftPlusHSGP",
+    "SuperchargedMMM",
     "TanhSaturation",
     "TanhSaturationBaselined",
     "TimeSliceCrossValidationResult",
