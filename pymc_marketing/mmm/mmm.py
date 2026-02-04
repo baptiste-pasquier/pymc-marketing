@@ -3323,6 +3323,11 @@ class SuperchargedMMM(BaseMMM):
         ),
     ) -> None:
         """Initialize the SuperchargedMMM model."""
+        # Store monthly and weekly seasonality parameters BEFORE calling super().__init__()
+        # so they are available in default_model_config property
+        self.monthly_seasonality = monthly_seasonality
+        self.weekly_seasonality = weekly_seasonality
+        
         # Call parent constructor
         super().__init__(
             date_column=date_column,
@@ -3342,10 +3347,6 @@ class SuperchargedMMM(BaseMMM):
             outcome_node=outcome_node,
             scaling=scaling,
         )
-        
-        # Store monthly and weekly seasonality parameters
-        self.monthly_seasonality = monthly_seasonality
-        self.weekly_seasonality = weekly_seasonality
         
         # Initialize MonthlyFourier if monthly_seasonality is provided
         if self.monthly_seasonality is not None:
