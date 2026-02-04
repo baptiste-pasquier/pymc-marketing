@@ -3381,8 +3381,9 @@ class SuperchargedMMM(BaseMMM):
         if not isinstance(X_data, pd.DataFrame):
             raise TypeError("X data must be a DataFrame for monthly seasonality")
         
+        # MonthlyFourier uses dayofyear internally, dividing by days_in_period (≈30.44)
         dayofyear_value = X_data[self.date_column].dt.dayofyear.to_numpy()
-        dayofyear = pm.Data(name="dayofyear_monthly", value=dayofyear_value, dims="date")
+        dayofyear_data = pm.Data(name="dayofyear_for_monthly", value=dayofyear_value, dims="date")
         
         def create_deterministic(x: pt.TensorVariable) -> None:
             pm.Deterministic(
@@ -3394,7 +3395,7 @@ class SuperchargedMMM(BaseMMM):
         return pm.Deterministic(
             name="monthly_seasonality_contribution",
             var=self.monthly_fourier.apply(
-                dayofyear, result_callback=create_deterministic
+                dayofyear_data, result_callback=create_deterministic
             ),
             dims="date",
         )
@@ -3414,8 +3415,10 @@ class SuperchargedMMM(BaseMMM):
         if not isinstance(X_data, pd.DataFrame):
             raise TypeError("X data must be a DataFrame for weekly seasonality")
         
+        # WeeklyFourier uses dayofyear internally, dividing by days_in_period (7)
+        # This is mathematically equivalent to dayofweek but avoids divergences with TVP
         dayofyear_value = X_data[self.date_column].dt.dayofyear.to_numpy()
-        dayofyear = pm.Data(name="dayofyear_weekly", value=dayofyear_value, dims="date")
+        dayofyear_data = pm.Data(name="dayofyear_for_weekly", value=dayofyear_value, dims="date")
         
         def create_deterministic(x: pt.TensorVariable) -> None:
             pm.Deterministic(
@@ -3427,7 +3430,7 @@ class SuperchargedMMM(BaseMMM):
         return pm.Deterministic(
             name="weekly_seasonality_contribution",
             var=self.weekly_fourier.apply(
-                dayofyear, result_callback=create_deterministic
+                dayofyear_data, result_callback=create_deterministic
             ),
             dims="date",
         )
