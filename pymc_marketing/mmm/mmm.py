@@ -3181,11 +3181,20 @@ class MMM(
         return fig
 
 
-class SuperchargedMMM(BaseMMM):
+class SuperchargedMMM(
+    MaxAbsScaleTarget,
+    MaxAbsScaleChannels,
+    ValidateControlColumns,
+    BaseMMM,
+):
     """Supercharged Media Mix Model with monthly and weekly seasonality support.
     
-    This class extends BaseMMM to add monthly and weekly seasonality components
+    This class extends MMM to add monthly and weekly seasonality components
     using MonthlyFourier and WeeklyFourier transformations.
+    
+    By extending from the same base classes as MMM (MaxAbsScaleTarget, MaxAbsScaleChannels,
+    ValidateControlColumns, BaseMMM), this class inherits all MMM methods including
+    plot_direct_contribution_curves, sample_posterior_predictive, optimize_budget, etc.
     
     Parameters
     ----------

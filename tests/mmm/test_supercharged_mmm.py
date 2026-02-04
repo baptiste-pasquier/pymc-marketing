@@ -176,3 +176,26 @@ class TestSuperchargedMMM:
         
         assert hasattr(model, "plot_components_contributions")
         assert callable(model.plot_components_contributions)
+
+    def test_inherits_mmm_methods(self):
+        """Test that SuperchargedMMM inherits key MMM methods."""
+        model = SuperchargedMMM(
+            date_column="date",
+            channel_columns=["channel_1", "channel_2"],
+            adstock=GeometricAdstock(l_max=4),
+            saturation=LogisticSaturation(),
+            monthly_seasonality=1,
+        )
+        
+        # Check that key MMM methods are accessible
+        mmm_methods = [
+            "plot_direct_contribution_curves",
+            "sample_posterior_predictive",
+            "optimize_budget",
+            "get_channel_contributions_forward_pass",
+            "compute_channel_contribution_forward_pass",
+        ]
+        
+        for method_name in mmm_methods:
+            assert hasattr(model, method_name), f"Missing method: {method_name}"
+            assert callable(getattr(model, method_name)), f"Method not callable: {method_name}"
