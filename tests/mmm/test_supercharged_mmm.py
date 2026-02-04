@@ -199,3 +199,39 @@ class TestSuperchargedMMM:
         for method_name in mmm_methods:
             assert hasattr(model, method_name), f"Missing method: {method_name}"
             assert callable(getattr(model, method_name)), f"Method not callable: {method_name}"
+
+    def test_save_load_with_seasonality(self, toy_X, toy_y, mock_pymc_sample):
+        """Test that save/load works correctly with monthly and weekly seasonality."""
+        import os
+        
+        # Create model with monthly and weekly seasonality
+        model = SuperchargedMMM(
+            date_column="date",
+            channel_columns=["channel_1", "channel_2"],
+            adstock=GeometricAdstock(l_max=4),
+            saturation=LogisticSaturation(),
+            yearly_seasonality=2,
+            monthly_seasonality=1,
+            weekly_seasonality=1,
+        )
+        
+        # Fit the model
+        model.fit(toy_X, toy_y)
+        
+        # Save the model
+        model.save("test_supercharged_save_load")
+        
+        # Load the model
+        model2 = SuperchargedMMM.load("test_supercharged_save_load")
+        
+        # Verify all attributes are preserved
+        assert model.date_column == model2.date_column
+        assert model.channel_columns == model2.channel_columns
+        assert model.adstock.l_max == model2.adstock.l_max
+        assert model.validate_data == model2.validate_data
+        assert model.yearly_seasonality == model2.yearly_seasonality
+        assert model.monthly_seasonality == model2.monthly_seasonality
+        assert model.weekly_seasonality == model2.weekly_seasonality
+        
+        # Clean up
+        os.remove("test_supercharged_save_load")

@@ -3748,3 +3748,34 @@ class SuperchargedMMM(
         )
         
         return fig
+    
+    def create_idata_attrs(self) -> dict[str, str]:
+        """Create attributes for the inference data.
+        
+        Extends parent method to include monthly and weekly seasonality parameters.
+        
+        Returns
+        -------
+        dict[str, str]
+            The attributes for the inference data.
+        """
+        attrs = super().create_idata_attrs()
+        attrs["monthly_seasonality"] = json.dumps(self.monthly_seasonality)
+        attrs["weekly_seasonality"] = json.dumps(self.weekly_seasonality)
+        return attrs
+    
+    @classmethod
+    def attrs_to_init_kwargs(cls, attrs) -> dict[str, Any]:
+        """Convert attributes to initialization kwargs.
+        
+        Extends parent method to include monthly and weekly seasonality parameters.
+        
+        Returns
+        -------
+        dict[str, Any]
+            The initialization kwargs.
+        """
+        kwargs = super().attrs_to_init_kwargs(attrs)
+        kwargs["monthly_seasonality"] = json.loads(attrs.get("monthly_seasonality", "null"))
+        kwargs["weekly_seasonality"] = json.loads(attrs.get("weekly_seasonality", "null"))
+        return kwargs
