@@ -32,6 +32,14 @@ from pymc_extras.prior import Prior
 from scipy.optimize import OptimizeResult
 from xarray import DataArray, Dataset
 
+# Optional plotly import
+try:
+    import plotly.graph_objects as go
+
+    HAS_PLOTLY = True
+except ImportError:
+    HAS_PLOTLY = False
+
 from pymc_marketing.hsgp_kwargs import HSGPKwargs
 from pymc_marketing.mmm.base import BaseValidateMMM
 from pymc_marketing.mmm.causal import CausalGraphModel
@@ -3640,7 +3648,7 @@ class SuperchargedMMM(MMM):
     def plot_components_contributions(
         self,
         original_scale: bool = False,
-        backend: Literal["matplotlib", "seaborn"] = "matplotlib",
+        backend: Literal["matplotlib", "seaborn", "plotly"] = "matplotlib",
         show_channel_contribution: bool = True,
         show_control_contribution: bool = True,
         show_yearly_seasonality: bool = True,
@@ -3649,7 +3657,7 @@ class SuperchargedMMM(MMM):
         show_intercept: bool = True,
         show_target: bool = True,
         **plt_kwargs: Any,
-    ) -> plt.Figure:
+    ) -> plt.Figure | Any:
         """Plot the target variable and the posterior predictive model components.
         
         This method extends the parent implementation to include monthly and weekly
@@ -3659,9 +3667,10 @@ class SuperchargedMMM(MMM):
         ----------
         original_scale : bool, optional
             Whether to plot in the original scale.
-        backend : {"matplotlib", "seaborn"}, optional
+        backend : {"matplotlib", "seaborn", "plotly"}, optional
             Plotting backend to use. Default is "matplotlib".
             "seaborn" applies seaborn styling to the plot.
+            "plotly" creates an interactive plotly figure.
         show_channel_contribution : bool, optional
             Whether to show channel contribution. Default is True.
         show_control_contribution : bool, optional
@@ -3677,13 +3686,28 @@ class SuperchargedMMM(MMM):
         show_target : bool, optional
             Whether to show target variable. Default is True.
         **plt_kwargs
-            Additional keyword arguments to pass to `plt.subplots`.
+            Additional keyword arguments to pass to `plt.subplots` (for matplotlib/seaborn)
+            or to `go.Figure` (for plotly).
         
         Returns
         -------
-        plt.Figure
+        plt.Figure or plotly.graph_objects.Figure
             Figure with component contributions plotted.
+            Returns matplotlib Figure for "matplotlib" and "seaborn" backends.
+            Returns plotly Figure for "plotly" backend.
+        
+        Raises
+        ------
+        ImportError
+            If plotly backend is selected but plotly is not installed.
         """
+        # Check for plotly availability if needed
+        if backend == "plotly" and not HAS_PLOTLY:
+            raise ImportError(
+                "Plotly is required for plotly backend. "
+                "Install it with: pip install plotly"
+            )
+        
         # Apply seaborn style if requested
         if backend == "seaborn":
             sns.set_theme()
@@ -3723,13 +3747,148 @@ class SuperchargedMMM(MMM):
                 )
                 contribution_names.append(display_name)
         
-        # Create plot
-        fig, ax = plt.subplots(**plt_kwargs)
-        
         if self.X is None:
-            return fig
+            if backend == "plotly":
+                return go.Figure(**plt_kwargs)
+            return plt.figure(**plt_kwargs)
         
         dates = self.X[self.date_column]
+        ylabel = self.output_var if original_scale else f"{self.output_var} scaled"
+        
+        # Plotly backend
+        if backend == "plotly":
+            fig = go.Figure(**plt_kwargs)
+            
+            # Use plotly default color sequence
+            colors = [
+                "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+                "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"
+            ]
+            
+            # Plot contributions
+            for i, (mean, hdi, var_name) in enumerate(
+                zip(means, contribution_vars, contribution_names, strict=False)
+            ):
+                color = colors[i % len(colors)]
+                
+                # Add HDI as filled area
+                fig.add_trace(go.Scatter(
+                    x=dates,
+                    y=hdi.isel(hdi=1).values,
+                    mode='lines',
+                    line=dict(width=0),
+                    showlegend=False,
+                    hoverinfo='skip',
+                ))
+                fig.add_trace(go.Scatter(
+                    x=dates,
+                    y=hdi.isel(hdi=0).values,
+                    mode='lines',
+                    line=dict(width=0),
+                    fillcolor=color.replace('1.0', '0.25').replace('rgb', 'rgba').replace(')', ', 0.25)') if 'rgb' in color else f'rgba({int(color[1:3], 16)}, {int(color[3:5], 16)}, {int(color[5:7], 16)}, 0.25)',
+                    fill='tonexty',
+                    name=f'94% HDI ({var_name})',
+                    hoverinfo='skip',
+                ))
+                
+                # Add mean line
+                fig.add_trace(go.Scatter(
+                    x=dates,
+                    y=np.asarray(mean),
+                    mode='lines',
+                    line=dict(color=color),
+                    name=var_name,
+                    showlegend=True,
+                ))
+            
+            # Plot intercept
+            if show_intercept:
+                intercept_mean, intercept_hdi = self._get_intercept_for_plot(original_scale)
+                color_idx = len(means)
+                color = colors[color_idx % len(colors)]
+                
+                # Use scalar intercept if possible, otherwise array
+                if np.ndim(intercept_mean) == 0:
+                    # Scalar intercept - horizontal line
+                    fig.add_trace(go.Scatter(
+                        x=dates,
+                        y=[intercept_mean] * len(dates),
+                        mode='lines',
+                        line=dict(color=color),
+                        name='intercept',
+                        showlegend=True,
+                    ))
+                    # Add HDI for scalar intercept
+                    fig.add_trace(go.Scatter(
+                        x=dates,
+                        y=[intercept_hdi[0, 1]] * len(dates),
+                        mode='lines',
+                        line=dict(width=0),
+                        showlegend=False,
+                        hoverinfo='skip',
+                    ))
+                    fig.add_trace(go.Scatter(
+                        x=dates,
+                        y=[intercept_hdi[0, 0]] * len(dates),
+                        mode='lines',
+                        line=dict(width=0),
+                        fillcolor=f'rgba({int(color[1:3], 16)}, {int(color[3:5], 16)}, {int(color[5:7], 16)}, 0.25)',
+                        fill='tonexty',
+                        name='94% HDI (intercept)',
+                        hoverinfo='skip',
+                    ))
+                else:
+                    # Time-varying intercept
+                    fig.add_trace(go.Scatter(
+                        x=dates,
+                        y=intercept_hdi[:, 1],
+                        mode='lines',
+                        line=dict(width=0),
+                        showlegend=False,
+                        hoverinfo='skip',
+                    ))
+                    fig.add_trace(go.Scatter(
+                        x=dates,
+                        y=intercept_hdi[:, 0],
+                        mode='lines',
+                        line=dict(width=0),
+                        fillcolor=f'rgba({int(color[1:3], 16)}, {int(color[3:5], 16)}, {int(color[5:7], 16)}, 0.25)',
+                        fill='tonexty',
+                        name='94% HDI (intercept)',
+                        hoverinfo='skip',
+                    ))
+                    fig.add_trace(go.Scatter(
+                        x=dates,
+                        y=intercept_mean,
+                        mode='lines',
+                        line=dict(color=color),
+                        name='intercept',
+                        showlegend=True,
+                    ))
+            
+            # Plot target
+            if show_target:
+                y_to_plot = self._get_target_for_plot(original_scale)
+                fig.add_trace(go.Scatter(
+                    x=dates,
+                    y=y_to_plot,
+                    mode='lines',
+                    line=dict(color='black'),
+                    name=ylabel,
+                ))
+            
+            # Update layout
+            fig.update_layout(
+                title="Posterior Predictive Model Components (with Enhanced Seasonality)",
+                xaxis_title="date",
+                yaxis_title=ylabel,
+                hovermode='x unified',
+            )
+            
+            return fig
+        
+        # Matplotlib/Seaborn backend
+        fig, ax = plt.subplots(**plt_kwargs)
         
         # Plot contributions
         for i, (mean, hdi, var_name) in enumerate(
@@ -3770,10 +3929,7 @@ class SuperchargedMMM(MMM):
         # Plot target
         if show_target:
             y_to_plot = self._get_target_for_plot(original_scale)
-            ylabel = self.output_var if original_scale else f"{self.output_var} scaled"
             ax.plot(dates, y_to_plot, label=ylabel, color="black")
-        else:
-            ylabel = self.output_var if original_scale else f"{self.output_var} scaled"
         
         ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.1), ncol=3)
         ax.set(
