@@ -236,3 +236,162 @@ class TestSuperchargedMMM:
         
         # Clean up
         os.remove("test_supercharged_save_load")
+
+
+class TestSuperchargedMMMPlotting:
+    """Test plotting functionality for SuperchargedMMM."""
+    
+    @pytest.fixture
+    def fitted_model(self, toy_X, toy_y):
+        """Create a fitted SuperchargedMMM model for testing."""
+        from tests.mmm.conftest import mock_fit
+        
+        model = SuperchargedMMM(
+            date_column="date",
+            channel_columns=["channel_1", "channel_2"],
+            adstock=GeometricAdstock(l_max=4),
+            saturation=LogisticSaturation(),
+            yearly_seasonality=2,
+            monthly_seasonality=1,
+            weekly_seasonality=1,
+        )
+        mock_fit(model, toy_X, toy_y)
+        return model
+    
+    def test_plot_components_contributions_matplotlib_backend(self, fitted_model):
+        """Test plot_components_contributions with matplotlib backend."""
+        import matplotlib.pyplot as plt
+        
+        fig = fitted_model.plot_components_contributions(backend="matplotlib")
+        
+        assert isinstance(fig, plt.Figure)
+        plt.close(fig)
+    
+    def test_plot_components_contributions_seaborn_backend(self, fitted_model):
+        """Test plot_components_contributions with seaborn backend."""
+        import matplotlib.pyplot as plt
+        
+        fig = fitted_model.plot_components_contributions(backend="seaborn")
+        
+        assert isinstance(fig, plt.Figure)
+        plt.close(fig)
+    
+    def test_plot_components_contributions_plotly_backend(self, fitted_model):
+        """Test plot_components_contributions with plotly backend."""
+        pytest.importorskip("plotly")
+        import plotly.graph_objects as go
+        
+        fig = fitted_model.plot_components_contributions(backend="plotly")
+        
+        assert isinstance(fig, go.Figure)
+    
+    def test_plot_components_contributions_plotly_without_plotly(self, fitted_model, monkeypatch):
+        """Test that plotly backend raises ImportError when plotly is not available."""
+        # Mock HAS_PLOTLY to False
+        import pymc_marketing.mmm.mmm as mmm_module
+        monkeypatch.setattr(mmm_module, "HAS_PLOTLY", False)
+        
+        with pytest.raises(ImportError, match="Plotly is required for plotly backend"):
+            fitted_model.plot_components_contributions(backend="plotly")
+    
+    def test_plot_components_contributions_with_original_scale(self, fitted_model):
+        """Test plot_components_contributions with original_scale parameter."""
+        import matplotlib.pyplot as plt
+        
+        fig = fitted_model.plot_components_contributions(
+            backend="matplotlib",
+            original_scale=True,
+        )
+        
+        assert isinstance(fig, plt.Figure)
+        plt.close(fig)
+    
+    def test_plot_components_contributions_hide_channel(self, fitted_model):
+        """Test plot_components_contributions with channel hidden."""
+        import matplotlib.pyplot as plt
+        
+        fig = fitted_model.plot_components_contributions(
+            backend="matplotlib",
+            show_channel_contribution=False,
+        )
+        
+        assert isinstance(fig, plt.Figure)
+        plt.close(fig)
+    
+    def test_plot_components_contributions_hide_all_seasonalities(self, fitted_model):
+        """Test plot_components_contributions with all seasonalities hidden."""
+        import matplotlib.pyplot as plt
+        
+        fig = fitted_model.plot_components_contributions(
+            backend="matplotlib",
+            show_yearly_seasonality=False,
+            show_monthly_seasonality=False,
+            show_weekly_seasonality=False,
+        )
+        
+        assert isinstance(fig, plt.Figure)
+        plt.close(fig)
+    
+    def test_plot_components_contributions_hide_intercept(self, fitted_model):
+        """Test plot_components_contributions with intercept hidden."""
+        import matplotlib.pyplot as plt
+        
+        fig = fitted_model.plot_components_contributions(
+            backend="matplotlib",
+            show_intercept=False,
+        )
+        
+        assert isinstance(fig, plt.Figure)
+        plt.close(fig)
+    
+    def test_plot_components_contributions_hide_target(self, fitted_model):
+        """Test plot_components_contributions with target hidden."""
+        import matplotlib.pyplot as plt
+        
+        fig = fitted_model.plot_components_contributions(
+            backend="matplotlib",
+            show_target=False,
+        )
+        
+        assert isinstance(fig, plt.Figure)
+        plt.close(fig)
+    
+    def test_plot_components_contributions_plotly_with_all_options(self, fitted_model):
+        """Test plotly backend with various component visibility options."""
+        pytest.importorskip("plotly")
+        import plotly.graph_objects as go
+        
+        # Test with some components hidden
+        fig = fitted_model.plot_components_contributions(
+            backend="plotly",
+            original_scale=True,
+            show_channel_contribution=True,
+            show_yearly_seasonality=False,
+            show_monthly_seasonality=True,
+            show_weekly_seasonality=False,
+            show_intercept=True,
+            show_target=True,
+        )
+        
+        assert isinstance(fig, go.Figure)
+        
+        # Verify that traces are created
+        assert len(fig.data) > 0
+    
+    def test_plot_components_contributions_plotly_hide_all_optional(self, fitted_model):
+        """Test plotly backend with all optional components hidden."""
+        pytest.importorskip("plotly")
+        import plotly.graph_objects as go
+        
+        fig = fitted_model.plot_components_contributions(
+            backend="plotly",
+            show_channel_contribution=True,
+            show_control_contribution=False,
+            show_yearly_seasonality=False,
+            show_monthly_seasonality=False,
+            show_weekly_seasonality=False,
+            show_intercept=False,
+            show_target=False,
+        )
+        
+        assert isinstance(fig, go.Figure)
