@@ -3780,12 +3780,15 @@ class SuperchargedMMM(MMM):
                     showlegend=False,
                     hoverinfo='skip',
                 ))
+                # Convert hex color to rgba with alpha=0.25
+                rgb = tuple(int(color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
+                fillcolor = f'rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, 0.25)'
                 fig.add_trace(go.Scatter(
                     x=dates,
                     y=hdi.isel(hdi=0).values,
                     mode='lines',
                     line=dict(width=0),
-                    fillcolor=color.replace('1.0', '0.25').replace('rgb', 'rgba').replace(')', ', 0.25)') if 'rgb' in color else f'rgba({int(color[1:3], 16)}, {int(color[3:5], 16)}, {int(color[5:7], 16)}, 0.25)',
+                    fillcolor=fillcolor,
                     fill='tonexty',
                     name=f'94% HDI ({var_name})',
                     hoverinfo='skip',
@@ -3819,6 +3822,8 @@ class SuperchargedMMM(MMM):
                         showlegend=True,
                     ))
                     # Add HDI for scalar intercept
+                    rgb = tuple(int(color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
+                    fillcolor = f'rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, 0.25)'
                     fig.add_trace(go.Scatter(
                         x=dates,
                         y=[intercept_hdi[0, 1]] * len(dates),
@@ -3832,13 +3837,15 @@ class SuperchargedMMM(MMM):
                         y=[intercept_hdi[0, 0]] * len(dates),
                         mode='lines',
                         line=dict(width=0),
-                        fillcolor=f'rgba({int(color[1:3], 16)}, {int(color[3:5], 16)}, {int(color[5:7], 16)}, 0.25)',
+                        fillcolor=fillcolor,
                         fill='tonexty',
                         name='94% HDI (intercept)',
                         hoverinfo='skip',
                     ))
                 else:
                     # Time-varying intercept
+                    rgb = tuple(int(color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
+                    fillcolor = f'rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, 0.25)'
                     fig.add_trace(go.Scatter(
                         x=dates,
                         y=intercept_hdi[:, 1],
@@ -3852,7 +3859,7 @@ class SuperchargedMMM(MMM):
                         y=intercept_hdi[:, 0],
                         mode='lines',
                         line=dict(width=0),
-                        fillcolor=f'rgba({int(color[1:3], 16)}, {int(color[3:5], 16)}, {int(color[5:7], 16)}, 0.25)',
+                        fillcolor=fillcolor,
                         fill='tonexty',
                         name='94% HDI (intercept)',
                         hoverinfo='skip',
