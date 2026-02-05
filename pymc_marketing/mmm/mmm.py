@@ -3444,10 +3444,10 @@ class CustomMMM(MMM):
             dims="date",
         )
 
-    def build_model(
+    def build_model(  # type: ignore[override]
         self,
         X: pd.DataFrame,
-        y: pd.Series,
+        y: pd.Series | np.ndarray,
         **kwargs,
     ) -> None:
         """Build a probabilistic model using PyMC for marketing mix modeling.
@@ -3550,7 +3550,7 @@ class CustomMMM(MMM):
                 mu,
             )
 
-    def _add_original_scale_deterministics(
+    def _add_original_scale_deterministics(  # type: ignore[override]
         self,
         channel_contribution: pt.TensorVariable,
         target_scale: pt.TensorVariable,
