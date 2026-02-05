@@ -3645,7 +3645,7 @@ class CustomMMM(MMM):
 
     def plot_components_contributions(
         self, original_scale: bool = False, **hvplot_kwargs: Any
-    ):
+    ):  # -> holoviews.core.overlay.Overlay
         """Plot the target variable and the posterior predictive model components using hvPlot.
 
         This method extends the parent implementation to include monthly and weekly
@@ -3671,7 +3671,7 @@ class CustomMMM(MMM):
         )
 
         means = [channel_contribution.mean(["chain", "draw"])]
-        contribution_vars = [
+        contribution_hdis = [
             az.hdi(channel_contribution, hdi_prob=DEFAULT_HDI_PROB).channel_contribution
         ]
         contribution_names = ["channel_contribution"]
@@ -3698,7 +3698,7 @@ class CustomMMM(MMM):
                     var_contribution=var_name, original_scale=original_scale
                 )
                 means.append(contributions.mean(["chain", "draw"]))
-                contribution_vars.append(
+                contribution_hdis.append(
                     az.hdi(contributions, hdi_prob=DEFAULT_HDI_PROB)[var_name]
                 )
                 contribution_names.append(display_name)
@@ -3717,7 +3717,7 @@ class CustomMMM(MMM):
             plot_data[f"{var_name}_mean"] = np.asarray(mean)
 
         # Add HDI bounds
-        for hdi, var_name in zip(contribution_vars, contribution_names, strict=False):
+        for hdi, var_name in zip(contribution_hdis, contribution_names, strict=False):
             plot_data[f"{var_name}_lower"] = hdi.isel(hdi=0).values
             plot_data[f"{var_name}_upper"] = hdi.isel(hdi=1).values
 
@@ -3751,9 +3751,9 @@ class CustomMMM(MMM):
         }
         default_kwargs.update(hvplot_kwargs)
 
-        # Helper function to filter kwargs
-        def get_filtered_kwargs(*exclude_keys):
-            return {k: v for k, v in default_kwargs.items() if k not in exclude_keys}
+        # Helper function to exclude specific keys from default kwargs
+        def exclude_kwargs(*keys_to_exclude):
+            return {k: v for k, v in default_kwargs.items() if k not in keys_to_exclude}
 
         # Plot contributions with HDI bands
         for i, var_name in enumerate(contribution_names):
@@ -3767,7 +3767,7 @@ class CustomMMM(MMM):
                 y=mean_col,
                 label=var_name,
                 color=f"C{i}",
-                **get_filtered_kwargs("x", "y", "label", "color"),
+                **exclude_kwargs("x", "y", "label", "color"),
             )
 
             # Plot HDI area
@@ -3778,7 +3778,7 @@ class CustomMMM(MMM):
                 label=f"94% HDI ({var_name})",
                 alpha=0.25,
                 color=f"C{i}",
-                **get_filtered_kwargs("x", "y", "y2", "label", "alpha", "color"),
+                **exclude_kwargs("x", "y", "y2", "label", "alpha", "color"),
             )
 
             overlay *= line_plot * area_plot
@@ -3790,7 +3790,7 @@ class CustomMMM(MMM):
             y="intercept_mean",
             label="intercept",
             color=f"C{color_idx}",
-            **get_filtered_kwargs("x", "y", "label", "color"),
+            **exclude_kwargs("x", "y", "label", "color"),
         )
 
         intercept_area = plot_data.hvplot.area(
@@ -3800,7 +3800,7 @@ class CustomMMM(MMM):
             label="94% HDI (intercept)",
             alpha=0.25,
             color=f"C{color_idx}",
-            **get_filtered_kwargs("x", "y", "y2", "label", "alpha", "color"),
+            **exclude_kwargs("x", "y", "y2", "label", "alpha", "color"),
         )
 
         overlay *= intercept_line * intercept_area
@@ -3812,7 +3812,7 @@ class CustomMMM(MMM):
             label=ylabel,
             color="black",
             line_width=2,
-            **get_filtered_kwargs("x", "y", "label", "color", "line_width"),
+            **exclude_kwargs("x", "y", "label", "color", "line_width"),
         )
 
         overlay *= target_line
