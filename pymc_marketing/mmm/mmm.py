@@ -73,6 +73,30 @@ from pymc_marketing.model_graph import deterministics_to_flat
 __all__ = ["MMM", "BaseMMM", "SuperchargedMMM"]
 
 DEFAULT_HDI_PROB = 0.94
+# Default color palette for plotly plots (matches plotly's default colors)
+PLOTLY_DEFAULT_COLORS = [
+    "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+    "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"
+]
+
+
+def _hex_to_rgba(hex_color: str, alpha: float = 0.25) -> str:
+    """Convert hex color to rgba string.
+    
+    Parameters
+    ----------
+    hex_color : str
+        Hex color string (e.g., "#1f77b4")
+    alpha : float, optional
+        Alpha value for transparency, by default 0.25
+    
+    Returns
+    -------
+    str
+        RGBA color string (e.g., "rgba(31, 119, 180, 0.25)")
+    """
+    rgb = tuple(int(hex_color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
+    return f'rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, {alpha})'
 
 
 class BaseMMM(BaseValidateMMM):
@@ -3759,17 +3783,11 @@ class SuperchargedMMM(MMM):
         if backend == "plotly":
             fig = go.Figure(**plt_kwargs)
             
-            # Use plotly default color sequence
-            colors = [
-                "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
-                "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"
-            ]
-            
             # Plot contributions
             for i, (mean, hdi, var_name) in enumerate(
-                zip(means, contribution_vars, contribution_names, strict=False)
+                zip(means, contribution_vars, contribution_names, strict=True)
             ):
-                color = colors[i % len(colors)]
+                color = PLOTLY_DEFAULT_COLORS[i % len(PLOTLY_DEFAULT_COLORS)]
                 
                 # Add HDI as filled area
                 fig.add_trace(go.Scatter(
@@ -3780,15 +3798,12 @@ class SuperchargedMMM(MMM):
                     showlegend=False,
                     hoverinfo='skip',
                 ))
-                # Convert hex color to rgba with alpha=0.25
-                rgb = tuple(int(color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
-                fillcolor = f'rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, 0.25)'
                 fig.add_trace(go.Scatter(
                     x=dates,
                     y=hdi.isel(hdi=0).values,
                     mode='lines',
                     line=dict(width=0),
-                    fillcolor=fillcolor,
+                    fillcolor=_hex_to_rgba(color),
                     fill='tonexty',
                     name=f'94% HDI ({var_name})',
                     hoverinfo='skip',
@@ -3808,7 +3823,7 @@ class SuperchargedMMM(MMM):
             if show_intercept:
                 intercept_mean, intercept_hdi = self._get_intercept_for_plot(original_scale)
                 color_idx = len(means)
-                color = colors[color_idx % len(colors)]
+                color = PLOTLY_DEFAULT_COLORS[color_idx % len(PLOTLY_DEFAULT_COLORS)]
                 
                 # Use scalar intercept if possible, otherwise array
                 if np.ndim(intercept_mean) == 0:
@@ -3822,8 +3837,6 @@ class SuperchargedMMM(MMM):
                         showlegend=True,
                     ))
                     # Add HDI for scalar intercept
-                    rgb = tuple(int(color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
-                    fillcolor = f'rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, 0.25)'
                     fig.add_trace(go.Scatter(
                         x=dates,
                         y=[intercept_hdi[0, 1]] * len(dates),
@@ -3837,15 +3850,13 @@ class SuperchargedMMM(MMM):
                         y=[intercept_hdi[0, 0]] * len(dates),
                         mode='lines',
                         line=dict(width=0),
-                        fillcolor=fillcolor,
+                        fillcolor=_hex_to_rgba(color),
                         fill='tonexty',
                         name='94% HDI (intercept)',
                         hoverinfo='skip',
                     ))
                 else:
                     # Time-varying intercept
-                    rgb = tuple(int(color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
-                    fillcolor = f'rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, 0.25)'
                     fig.add_trace(go.Scatter(
                         x=dates,
                         y=intercept_hdi[:, 1],
@@ -3859,7 +3870,7 @@ class SuperchargedMMM(MMM):
                         y=intercept_hdi[:, 0],
                         mode='lines',
                         line=dict(width=0),
-                        fillcolor=fillcolor,
+                        fillcolor=_hex_to_rgba(color),
                         fill='tonexty',
                         name='94% HDI (intercept)',
                         hoverinfo='skip',
@@ -3899,7 +3910,7 @@ class SuperchargedMMM(MMM):
         
         # Plot contributions
         for i, (mean, hdi, var_name) in enumerate(
-            zip(means, contribution_vars, contribution_names, strict=False)
+            zip(means, contribution_vars, contribution_names, strict=True)
         ):
             ax.fill_between(
                 x=dates,
