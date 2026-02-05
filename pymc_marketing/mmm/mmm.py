@@ -3740,7 +3740,7 @@ class CustomMMM(MMM):
         plot_data[ylabel] = y_to_plot
 
         # Create hvPlot overlay
-        overlay = None
+        overlay = hv.Overlay()
 
         # Default hvplot_kwargs
         default_kwargs = {
@@ -3750,6 +3750,10 @@ class CustomMMM(MMM):
             "legend": "top_left",
         }
         default_kwargs.update(hvplot_kwargs)
+
+        # Helper function to filter kwargs
+        def get_filtered_kwargs(*exclude_keys):
+            return {k: v for k, v in default_kwargs.items() if k not in exclude_keys}
 
         # Plot contributions with HDI bands
         for i, var_name in enumerate(contribution_names):
@@ -3763,7 +3767,7 @@ class CustomMMM(MMM):
                 y=mean_col,
                 label=var_name,
                 color=f"C{i}",
-                **{k: v for k, v in default_kwargs.items() if k not in ["x", "y", "label", "color"]},
+                **get_filtered_kwargs("x", "y", "label", "color"),
             )
 
             # Plot HDI area
@@ -3774,13 +3778,10 @@ class CustomMMM(MMM):
                 label=f"94% HDI ({var_name})",
                 alpha=0.25,
                 color=f"C{i}",
-                **{k: v for k, v in default_kwargs.items() if k not in ["x", "y", "y2", "label", "alpha", "color"]},
+                **get_filtered_kwargs("x", "y", "y2", "label", "alpha", "color"),
             )
 
-            if overlay is None:
-                overlay = line_plot * area_plot
-            else:
-                overlay = overlay * line_plot * area_plot
+            overlay *= line_plot * area_plot
 
         # Plot intercept
         color_idx = len(contribution_names)
@@ -3789,7 +3790,7 @@ class CustomMMM(MMM):
             y="intercept_mean",
             label="intercept",
             color=f"C{color_idx}",
-            **{k: v for k, v in default_kwargs.items() if k not in ["x", "y", "label", "color"]},
+            **get_filtered_kwargs("x", "y", "label", "color"),
         )
 
         intercept_area = plot_data.hvplot.area(
@@ -3799,10 +3800,10 @@ class CustomMMM(MMM):
             label="94% HDI (intercept)",
             alpha=0.25,
             color=f"C{color_idx}",
-            **{k: v for k, v in default_kwargs.items() if k not in ["x", "y", "y2", "label", "alpha", "color"]},
+            **get_filtered_kwargs("x", "y", "y2", "label", "alpha", "color"),
         )
 
-        overlay = overlay * intercept_line * intercept_area
+        overlay *= intercept_line * intercept_area
 
         # Plot target
         target_line = plot_data.hvplot.line(
@@ -3811,10 +3812,10 @@ class CustomMMM(MMM):
             label=ylabel,
             color="black",
             line_width=2,
-            **{k: v for k, v in default_kwargs.items() if k not in ["x", "y", "label", "color", "line_width"]},
+            **get_filtered_kwargs("x", "y", "label", "color", "line_width"),
         )
 
-        overlay = overlay * target_line
+        overlay *= target_line
 
         # Set title and labels
         overlay = overlay.opts(
