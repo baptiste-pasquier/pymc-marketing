@@ -740,6 +740,8 @@ class BaseMMM(BaseValidateMMM):
         target_scale: pt.TensorVariable,
         control_contribution: pt.TensorVariable | None,
         yearly_seasonality_contribution: pt.TensorVariable | None,
+        monthly_seasonality_contribution: pt.TensorVariable | None,
+        weekly_seasonality_contribution: pt.TensorVariable | None,
         mu: pt.TensorVariable,
     ) -> None:
         """Add deterministic variables in original scale.
@@ -754,6 +756,10 @@ class BaseMMM(BaseValidateMMM):
             Control contribution in scaled space
         yearly_seasonality_contribution : pt.TensorVariable | None
             Yearly seasonality contribution in scaled space
+        monthly_seasonality_contribution : pt.TensorVariable | None
+            Monthly seasonality contribution in scaled space
+        weekly_seasonality_contribution : pt.TensorVariable | None
+            Weekly seasonality contribution in scaled space
         mu : pt.TensorVariable
             Model prediction in scaled space
         """
@@ -779,6 +785,20 @@ class BaseMMM(BaseValidateMMM):
             pm.Deterministic(
                 name="yearly_seasonality_contribution_original_scale",
                 var=yearly_seasonality_contribution * target_scale,
+                dims="date",
+            )
+
+        if monthly_seasonality_contribution is not None:
+            pm.Deterministic(
+                name="monthly_seasonality_contribution_original_scale",
+                var=monthly_seasonality_contribution * target_scale,
+                dims="date",
+            )
+
+        if weekly_seasonality_contribution is not None:
+            pm.Deterministic(
+                name="weekly_seasonality_contribution_original_scale",
+                var=weekly_seasonality_contribution * target_scale,
                 dims="date",
             )
 
@@ -922,6 +942,8 @@ class BaseMMM(BaseValidateMMM):
                 target_scale_,
                 control_contribution,
                 yearly_seasonality_contribution,
+                None,  # monthly_seasonality_contribution
+                None,  # weekly_seasonality_contribution
                 mu,
             )
 
@@ -3444,10 +3466,10 @@ class CustomMMM(MMM):
             dims="date",
         )
 
-    def build_model(
+    def build_model(  # type: ignore[override]
         self,
         X: pd.DataFrame,
-        y: pd.Series,
+        y: pd.Series | np.ndarray,
         **kwargs,
     ) -> None:
         """Build a probabilistic model using PyMC for marketing mix modeling.
