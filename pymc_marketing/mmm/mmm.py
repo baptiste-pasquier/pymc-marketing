@@ -4014,7 +4014,7 @@ class CustomMMM(MMM):
         ):
             color = colors[i % len(colors)]
 
-            # Add HDI as filled area
+            # Add HDI as filled area with opacity
             fig.add_trace(
                 go.Scatter(
                     x=dates,
@@ -4031,8 +4031,9 @@ class CustomMMM(MMM):
                     y=hdi.isel(hdi=0).values,
                     mode="lines",
                     line=dict(width=0),
-                    fillcolor=color.replace("1f", "40"),  # Add transparency
+                    fillcolor=color,
                     fill="tonexty",
+                    opacity=0.25,
                     name=f"94% HDI ({var_name})",
                     hoverinfo="skip",
                 )
@@ -4069,7 +4070,7 @@ class CustomMMM(MMM):
                 intercept_hdi_upper = intercept_hdi[:, 1]
                 intercept_hdi_lower = intercept_hdi[:, 0]
 
-            # Add HDI for intercept
+            # Add HDI for intercept with opacity
             fig.add_trace(
                 go.Scatter(
                     x=dates,
@@ -4086,8 +4087,9 @@ class CustomMMM(MMM):
                     y=intercept_hdi_lower,
                     mode="lines",
                     line=dict(width=0),
-                    fillcolor=color.replace("1f", "40"),  # Add transparency
+                    fillcolor=color,
                     fill="tonexty",
+                    opacity=0.25,
                     name="94% HDI (intercept)",
                     hoverinfo="skip",
                 )

@@ -53,7 +53,7 @@ def toy_y(toy_X: pd.DataFrame) -> pd.Series:
 def mock_pymc_sample(monkeypatch):
     """Mock pymc.sample to return prior samples instead of posterior."""
 
-    def mock_fit(self, X: pd.DataFrame, y, **kwargs):
+    def mock_fit(self, X: pd.DataFrame, y: pd.Series, **kwargs):
         """Mock fit method that uses prior samples."""
         self.build_model(X=X, y=y)
         with self.model:
