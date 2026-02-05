@@ -17,7 +17,10 @@ import json
 import logging
 import warnings
 from collections.abc import Sequence
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Union
+
+if TYPE_CHECKING:
+    import plotly.graph_objects as go
 
 import arviz as az
 import matplotlib.pyplot as plt
@@ -3643,8 +3646,18 @@ class CustomMMM(MMM):
         return config
 
     def plot_components_contributions(
-        self, original_scale: bool = False, **plt_kwargs: Any
-    ) -> plt.Figure:
+        self,
+        original_scale: bool = False,
+        backend: Literal["matplotlib", "plotly"] = "matplotlib",
+        plot_channel: bool = True,
+        plot_control: bool = True,
+        plot_yearly_seasonality: bool = True,
+        plot_monthly_seasonality: bool = True,
+        plot_weekly_seasonality: bool = True,
+        plot_intercept: bool = True,
+        plot_target: bool = True,
+        **plt_kwargs: Any,
+    ) -> Union[plt.Figure, "go.Figure"]:
         """Plot the target variable and the posterior predictive model components.
 
         This method extends the parent implementation to include monthly and weekly
@@ -3653,44 +3666,173 @@ class CustomMMM(MMM):
         Parameters
         ----------
         original_scale : bool, optional
-            Whether to plot in the original scale.
+            Whether to plot in the original scale. Default is False.
+        backend : {"matplotlib", "plotly"}, optional
+            Plotting backend to use. Default is "matplotlib".
+        plot_channel : bool, optional
+            Whether to plot channel contributions. Default is True.
+        plot_control : bool, optional
+            Whether to plot control contributions. Default is True.
+        plot_yearly_seasonality : bool, optional
+            Whether to plot yearly seasonality contributions. Default is True.
+        plot_monthly_seasonality : bool, optional
+            Whether to plot monthly seasonality contributions. Default is True.
+        plot_weekly_seasonality : bool, optional
+            Whether to plot weekly seasonality contributions. Default is True.
+        plot_intercept : bool, optional
+            Whether to plot intercept. Default is True.
+        plot_target : bool, optional
+            Whether to plot target variable. Default is True.
         **plt_kwargs
-            Additional keyword arguments to pass to `plt.subplots`.
+            Additional keyword arguments to pass to the plotting backend.
+            For matplotlib: passed to `plt.subplots`.
+            For plotly: passed to `go.Figure`.
 
         Returns
         -------
-        plt.Figure
+        plt.Figure or go.Figure
             Figure with component contributions plotted.
+
+        Examples
+        --------
+        Plot with matplotlib (default):
+
+        .. code-block:: python
+
+            fig = model.plot_components_contributions()
+
+        Plot with plotly:
+
+        .. code-block:: python
+
+            fig = model.plot_components_contributions(backend="plotly")
+
+        Plot only channel and target contributions:
+
+        .. code-block:: python
+
+            fig = model.plot_components_contributions(
+                plot_control=False,
+                plot_yearly_seasonality=False,
+                plot_monthly_seasonality=False,
+                plot_weekly_seasonality=False,
+                plot_intercept=False,
+            )
         """
-        # Collect contributions and their HDIs
-        channel_contribution = self.get_ts_contribution_posterior(
-            var_contribution="channel_contribution", original_scale=original_scale
+        # Collect contributions data
+        means, contribution_vars, contribution_names = (
+            self._collect_contribution_data(
+                original_scale=original_scale,
+                plot_channel=plot_channel,
+                plot_control=plot_control,
+                plot_yearly_seasonality=plot_yearly_seasonality,
+                plot_monthly_seasonality=plot_monthly_seasonality,
+                plot_weekly_seasonality=plot_weekly_seasonality,
+            )
         )
 
-        means = [channel_contribution.mean(["chain", "draw"])]
-        contribution_vars = [
-            az.hdi(channel_contribution, hdi_prob=DEFAULT_HDI_PROB).channel_contribution
-        ]
-        contribution_names = ["channel_contribution"]
+        # Route to appropriate backend
+        if backend == "matplotlib":
+            return self._plot_contributions_matplotlib(
+                means=means,
+                contribution_vars=contribution_vars,
+                contribution_names=contribution_names,
+                original_scale=original_scale,
+                plot_intercept=plot_intercept,
+                plot_target=plot_target,
+                **plt_kwargs,
+            )
+        elif backend == "plotly":
+            return self._plot_contributions_plotly(
+                means=means,
+                contribution_vars=contribution_vars,
+                contribution_names=contribution_names,
+                original_scale=original_scale,
+                plot_intercept=plot_intercept,
+                plot_target=plot_target,
+                **plt_kwargs,
+            )
+        else:
+            raise ValueError(
+                f"Invalid backend: {backend}. Must be 'matplotlib' or 'plotly'."
+            )
+
+    def _collect_contribution_data(
+        self,
+        original_scale: bool,
+        plot_channel: bool,
+        plot_control: bool,
+        plot_yearly_seasonality: bool,
+        plot_monthly_seasonality: bool,
+        plot_weekly_seasonality: bool,
+    ) -> tuple[list, list, list]:
+        """Collect contribution data for plotting.
+
+        Parameters
+        ----------
+        original_scale : bool
+            Whether to use original scale.
+        plot_channel : bool
+            Whether to include channel contributions.
+        plot_control : bool
+            Whether to include control contributions.
+        plot_yearly_seasonality : bool
+            Whether to include yearly seasonality contributions.
+        plot_monthly_seasonality : bool
+            Whether to include monthly seasonality contributions.
+        plot_weekly_seasonality : bool
+            Whether to include weekly seasonality contributions.
+
+        Returns
+        -------
+        tuple[list, list, list]
+            Tuple of (means, contribution_vars, contribution_names).
+        """
+        means = []
+        contribution_vars = []
+        contribution_names = []
+
+        # Add channel contribution if requested
+        if plot_channel:
+            channel_contribution = self.get_ts_contribution_posterior(
+                var_contribution="channel_contribution", original_scale=original_scale
+            )
+            means.append(channel_contribution.mean(["chain", "draw"]))
+            contribution_vars.append(
+                az.hdi(channel_contribution, hdi_prob=DEFAULT_HDI_PROB).channel_contribution
+            )
+            contribution_names.append("channel_contribution")
 
         # Add optional contributions (controls and all seasonality types)
         component_mapping = [
-            ("control_columns", "control_contribution", "control_contribution"),
-            ("yearly_seasonality", "fourier_contribution", "yearly_seasonality"),
+            (
+                "control_columns",
+                "control_contribution",
+                "control_contribution",
+                plot_control,
+            ),
+            (
+                "yearly_seasonality",
+                "fourier_contribution",
+                "yearly_seasonality",
+                plot_yearly_seasonality,
+            ),
             (
                 "monthly_seasonality",
                 "monthly_seasonality_contribution",
                 "monthly_seasonality",
+                plot_monthly_seasonality,
             ),
             (
                 "weekly_seasonality",
                 "weekly_seasonality_contribution",
                 "weekly_seasonality",
+                plot_weekly_seasonality,
             ),
         ]
 
-        for attr_name, var_name, display_name in component_mapping:
-            if getattr(self, attr_name, None):
+        for attr_name, var_name, display_name, should_plot in component_mapping:
+            if should_plot and getattr(self, attr_name, None):
                 contributions = self.get_ts_contribution_posterior(
                     var_contribution=var_name, original_scale=original_scale
                 )
@@ -3700,6 +3842,42 @@ class CustomMMM(MMM):
                 )
                 contribution_names.append(display_name)
 
+        return means, contribution_vars, contribution_names
+
+    def _plot_contributions_matplotlib(
+        self,
+        means: list,
+        contribution_vars: list,
+        contribution_names: list,
+        original_scale: bool,
+        plot_intercept: bool,
+        plot_target: bool,
+        **plt_kwargs: Any,
+    ) -> plt.Figure:
+        """Create matplotlib plot of component contributions.
+
+        Parameters
+        ----------
+        means : list
+            List of mean contribution values.
+        contribution_vars : list
+            List of HDI contribution values.
+        contribution_names : list
+            List of contribution names.
+        original_scale : bool
+            Whether using original scale.
+        plot_intercept : bool
+            Whether to plot intercept.
+        plot_target : bool
+            Whether to plot target.
+        **plt_kwargs
+            Additional keyword arguments to pass to `plt.subplots`.
+
+        Returns
+        -------
+        plt.Figure
+            Matplotlib figure with component contributions plotted.
+        """
         # Create plot
         fig, ax = plt.subplots(**plt_kwargs)
 
@@ -3723,36 +3901,237 @@ class CustomMMM(MMM):
             ax.plot(dates, np.asarray(mean), color=f"C{i}")
 
         # Plot intercept
-        intercept_mean, intercept_hdi = self._get_intercept_for_plot(original_scale)
         color_idx = len(means)
+        if plot_intercept:
+            intercept_mean, intercept_hdi = self._get_intercept_for_plot(
+                original_scale
+            )
 
-        # Use scalar intercept if possible, otherwise array
-        if np.ndim(intercept_mean) == 0:
-            # Scalar intercept - matplotlib handles broadcasting automatically
-            ax.axhline(y=intercept_mean, color=f"C{color_idx}")
-        else:
-            # Time-varying intercept
-            ax.plot(dates, intercept_mean, color=f"C{color_idx}")
+            # Use scalar intercept if possible, otherwise array
+            if np.ndim(intercept_mean) == 0:
+                # Scalar intercept - matplotlib handles broadcasting automatically
+                ax.axhline(y=intercept_mean, color=f"C{color_idx}")
+            else:
+                # Time-varying intercept
+                ax.plot(dates, intercept_mean, color=f"C{color_idx}")
 
-        ax.fill_between(
-            x=dates,
-            y1=intercept_hdi[:, 0],
-            y2=intercept_hdi[:, 1],
-            color=f"C{color_idx}",
-            alpha=0.25,
-            label="$94\\%$ HDI (intercept)",
-        )
+            ax.fill_between(
+                x=dates,
+                y1=intercept_hdi[:, 0],
+                y2=intercept_hdi[:, 1],
+                color=f"C{color_idx}",
+                alpha=0.25,
+                label="$94\\%$ HDI (intercept)",
+            )
+            color_idx += 1
 
         # Plot target
-        y_to_plot = self._get_target_for_plot(original_scale)
-        ylabel = self.output_var if original_scale else f"{self.output_var} scaled"
+        if plot_target:
+            y_to_plot = self._get_target_for_plot(original_scale)
+            ylabel = (
+                self.output_var if original_scale else f"{self.output_var} scaled"
+            )
+            ax.plot(dates, y_to_plot, label=ylabel, color="black")
+        else:
+            ylabel = (
+                self.output_var if original_scale else f"{self.output_var} scaled"
+            )
 
-        ax.plot(dates, y_to_plot, label=ylabel, color="black")
         ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.1), ncol=3)
         ax.set(
             title="Posterior Predictive Model Components (with Enhanced Seasonality)",
             xlabel="date",
             ylabel=ylabel,
+        )
+
+        return fig
+
+    def _plot_contributions_plotly(
+        self,
+        means: list,
+        contribution_vars: list,
+        contribution_names: list,
+        original_scale: bool,
+        plot_intercept: bool,
+        plot_target: bool,
+        **fig_kwargs: Any,
+    ):
+        """Create plotly plot of component contributions.
+
+        Parameters
+        ----------
+        means : list
+            List of mean contribution values.
+        contribution_vars : list
+            List of HDI contribution values.
+        contribution_names : list
+            List of contribution names.
+        original_scale : bool
+            Whether using original scale.
+        plot_intercept : bool
+            Whether to plot intercept.
+        plot_target : bool
+            Whether to plot target.
+        **fig_kwargs
+            Additional keyword arguments to pass to `go.Figure`.
+
+        Returns
+        -------
+        go.Figure
+            Plotly figure with component contributions plotted.
+        """
+        try:
+            import plotly.graph_objects as go
+        except ImportError as e:
+            raise ImportError(
+                "plotly is required for plotly backend. "
+                "Install it with: pip install plotly"
+            ) from e
+
+        if self.X is None:
+            return go.Figure(**fig_kwargs)
+
+        dates = self.X[self.date_column]
+        fig = go.Figure(**fig_kwargs)
+
+        # Define a color palette similar to matplotlib's default
+        colors = [
+            "#1f77b4",
+            "#ff7f0e",
+            "#2ca02c",
+            "#d62728",
+            "#9467bd",
+            "#8c564b",
+            "#e377c2",
+            "#7f7f7f",
+            "#bcbd22",
+            "#17becf",
+        ]
+
+        # Plot contributions
+        for i, (mean, hdi, var_name) in enumerate(
+            zip(means, contribution_vars, contribution_names, strict=False)
+        ):
+            color = colors[i % len(colors)]
+
+            # Add HDI as filled area
+            fig.add_trace(
+                go.Scatter(
+                    x=dates,
+                    y=hdi.isel(hdi=1).values,
+                    mode="lines",
+                    line=dict(width=0),
+                    showlegend=False,
+                    hoverinfo="skip",
+                )
+            )
+            fig.add_trace(
+                go.Scatter(
+                    x=dates,
+                    y=hdi.isel(hdi=0).values,
+                    mode="lines",
+                    line=dict(width=0),
+                    fillcolor=color.replace("1f", "40"),  # Add transparency
+                    fill="tonexty",
+                    name=f"94% HDI ({var_name})",
+                    hoverinfo="skip",
+                )
+            )
+
+            # Add mean line
+            fig.add_trace(
+                go.Scatter(
+                    x=dates,
+                    y=np.asarray(mean),
+                    mode="lines",
+                    line=dict(color=color, width=2),
+                    name=var_name,
+                )
+            )
+
+        # Plot intercept
+        color_idx = len(means)
+        if plot_intercept:
+            intercept_mean, intercept_hdi = self._get_intercept_for_plot(
+                original_scale
+            )
+            color = colors[color_idx % len(colors)]
+
+            # Handle scalar vs time-varying intercept
+            if np.ndim(intercept_mean) == 0:
+                # Scalar intercept - create horizontal line
+                intercept_values = np.full(len(dates), intercept_mean)
+                intercept_hdi_upper = np.full(len(dates), intercept_hdi[0, 1])
+                intercept_hdi_lower = np.full(len(dates), intercept_hdi[0, 0])
+            else:
+                # Time-varying intercept
+                intercept_values = intercept_mean
+                intercept_hdi_upper = intercept_hdi[:, 1]
+                intercept_hdi_lower = intercept_hdi[:, 0]
+
+            # Add HDI for intercept
+            fig.add_trace(
+                go.Scatter(
+                    x=dates,
+                    y=intercept_hdi_upper,
+                    mode="lines",
+                    line=dict(width=0),
+                    showlegend=False,
+                    hoverinfo="skip",
+                )
+            )
+            fig.add_trace(
+                go.Scatter(
+                    x=dates,
+                    y=intercept_hdi_lower,
+                    mode="lines",
+                    line=dict(width=0),
+                    fillcolor=color.replace("1f", "40"),  # Add transparency
+                    fill="tonexty",
+                    name="94% HDI (intercept)",
+                    hoverinfo="skip",
+                )
+            )
+
+            # Add intercept mean line
+            fig.add_trace(
+                go.Scatter(
+                    x=dates,
+                    y=intercept_values,
+                    mode="lines",
+                    line=dict(color=color, width=2),
+                    name="intercept",
+                )
+            )
+            color_idx += 1
+
+        # Plot target
+        if plot_target:
+            y_to_plot = self._get_target_for_plot(original_scale)
+            ylabel = (
+                self.output_var if original_scale else f"{self.output_var} scaled"
+            )
+            fig.add_trace(
+                go.Scatter(
+                    x=dates,
+                    y=y_to_plot,
+                    mode="lines",
+                    line=dict(color="black", width=2),
+                    name=ylabel,
+                )
+            )
+        else:
+            ylabel = (
+                self.output_var if original_scale else f"{self.output_var} scaled"
+            )
+
+        # Update layout
+        fig.update_layout(
+            title="Posterior Predictive Model Components (with Enhanced Seasonality)",
+            xaxis_title="date",
+            yaxis_title=ylabel,
+            hovermode="x unified",
+            legend=dict(orientation="h", yanchor="top", y=-0.1, xanchor="center", x=0.5),
         )
 
         return fig
