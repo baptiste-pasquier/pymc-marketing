@@ -3751,6 +3751,21 @@ class CustomMMM(MMM):
         }
         default_kwargs.update(hvplot_kwargs)
 
+        # Matplotlib-compatible color palette for hvplot
+        # These are the default matplotlib tab10 colors (C0-C9)
+        colors = [
+            "#1f77b4",  # C0 - blue
+            "#ff7f0e",  # C1 - orange
+            "#2ca02c",  # C2 - green
+            "#d62728",  # C3 - red
+            "#9467bd",  # C4 - purple
+            "#8c564b",  # C5 - brown
+            "#e377c2",  # C6 - pink
+            "#7f7f7f",  # C7 - gray
+            "#bcbd22",  # C8 - olive
+            "#17becf",  # C9 - cyan
+        ]
+
         # Helper function to exclude specific keys from default kwargs
         def exclude_kwargs(*keys_to_exclude):
             return {k: v for k, v in default_kwargs.items() if k not in keys_to_exclude}
@@ -3761,12 +3776,15 @@ class CustomMMM(MMM):
             lower_col = f"{var_name}_lower"
             upper_col = f"{var_name}_upper"
 
+            # Get color from palette, cycling if needed
+            color = colors[i % len(colors)]
+
             # Plot mean line
             line_plot = plot_data.hvplot.line(
                 x="date",
                 y=mean_col,
                 label=var_name,
-                color=f"C{i}",
+                color=color,
                 **exclude_kwargs("x", "y", "label", "color"),
             )
 
@@ -3777,7 +3795,7 @@ class CustomMMM(MMM):
                 y2=upper_col,
                 label=f"94% HDI ({var_name})",
                 alpha=0.25,
-                color=f"C{i}",
+                color=color,
                 **exclude_kwargs("x", "y", "y2", "label", "alpha", "color"),
             )
 
@@ -3785,11 +3803,12 @@ class CustomMMM(MMM):
 
         # Plot intercept
         color_idx = len(contribution_names)
+        intercept_color = colors[color_idx % len(colors)]
         intercept_line = plot_data.hvplot.line(
             x="date",
             y="intercept_mean",
             label="intercept",
-            color=f"C{color_idx}",
+            color=intercept_color,
             **exclude_kwargs("x", "y", "label", "color"),
         )
 
@@ -3799,7 +3818,7 @@ class CustomMMM(MMM):
             y2="intercept_upper",
             label="94% HDI (intercept)",
             alpha=0.25,
-            color=f"C{color_idx}",
+            color=intercept_color,
             **exclude_kwargs("x", "y", "y2", "label", "alpha", "color"),
         )
 
