@@ -13,8 +13,11 @@
 #   limitations under the License.
 """Tests for CustomMMM class."""
 
+import warnings
+
 import numpy as np
 import pandas as pd
+import pymc as pm
 import pytest
 
 from pymc_marketing.mmm import CustomMMM, GeometricAdstock, LogisticSaturation
@@ -44,6 +47,38 @@ def toy_X() -> pd.DataFrame:
 def toy_y(toy_X: pd.DataFrame) -> pd.Series:
     """Generate toy target data for testing."""
     return pd.Series(data=rng.integers(low=0, high=100, size=toy_X.shape[0]))
+
+
+@pytest.fixture
+def mock_pymc_sample(monkeypatch):
+    """Mock pymc.sample to return prior samples instead of posterior."""
+
+    def mock_fit(self, X: pd.DataFrame, y, **kwargs):
+        """Mock fit method that uses prior samples."""
+        self.build_model(X=X, y=y)
+        with self.model:
+            idata = pm.sample_prior_predictive(random_seed=rng, **kwargs)
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                category=UserWarning,
+                message="The group fit_data is not defined in the InferenceData scheme",
+            )
+            idata.add_groups(
+                {
+                    "posterior": idata.prior,
+                    "fit_data": pd.concat(
+                        [X, pd.Series(y, index=X.index, name="y")], axis=1
+                    ).to_xarray(),
+                }
+            )
+        self.idata = idata
+        self.set_idata_attrs(idata=idata)
+        return self
+
+    monkeypatch.setattr(CustomMMM, "fit", mock_fit)
+    return mock_fit
 
 
 class TestCustomMMM:
@@ -244,3 +279,182 @@ class TestCustomMMM:
 
         # Clean up
         os.remove("test_custom_save_load")
+
+    def test_plot_components_contributions_matplotlib_backend(
+        self, toy_X, toy_y, mock_pymc_sample
+    ):
+        """Test plot_components_contributions with matplotlib backend."""
+        import matplotlib.pyplot as plt
+
+        model = CustomMMM(
+            date_column="date",
+            channel_columns=["channel_1", "channel_2"],
+            adstock=GeometricAdstock(l_max=4),
+            saturation=LogisticSaturation(),
+            yearly_seasonality=2,
+            monthly_seasonality=1,
+            weekly_seasonality=1,
+        )
+
+        model.fit(toy_X, toy_y)
+
+        # Test default matplotlib backend
+        fig = model.plot_components_contributions()
+        assert isinstance(fig, plt.Figure)
+        plt.close("all")
+
+        # Test explicit matplotlib backend
+        fig = model.plot_components_contributions(backend="matplotlib")
+        assert isinstance(fig, plt.Figure)
+        plt.close("all")
+
+        # Test with original_scale
+        fig = model.plot_components_contributions(
+            backend="matplotlib", original_scale=True
+        )
+        assert isinstance(fig, plt.Figure)
+        plt.close("all")
+
+    def test_plot_components_contributions_plotly_backend(
+        self, toy_X, toy_y, mock_pymc_sample
+    ):
+        """Test plot_components_contributions with plotly backend."""
+        pytest.importorskip("plotly")
+        import plotly.graph_objects as go
+
+        model = CustomMMM(
+            date_column="date",
+            channel_columns=["channel_1", "channel_2"],
+            adstock=GeometricAdstock(l_max=4),
+            saturation=LogisticSaturation(),
+            yearly_seasonality=2,
+            monthly_seasonality=1,
+            weekly_seasonality=1,
+        )
+
+        model.fit(toy_X, toy_y)
+
+        # Test plotly backend
+        fig = model.plot_components_contributions(backend="plotly")
+        assert isinstance(fig, go.Figure)
+
+        # Test with original_scale
+        fig = model.plot_components_contributions(
+            backend="plotly", original_scale=True
+        )
+        assert isinstance(fig, go.Figure)
+
+    def test_plot_components_contributions_individual_toggles(
+        self, toy_X, toy_y, mock_pymc_sample
+    ):
+        """Test individual contribution toggle parameters."""
+        import matplotlib.pyplot as plt
+
+        model = CustomMMM(
+            date_column="date",
+            channel_columns=["channel_1", "channel_2"],
+            adstock=GeometricAdstock(l_max=4),
+            saturation=LogisticSaturation(),
+            yearly_seasonality=2,
+            monthly_seasonality=1,
+            weekly_seasonality=1,
+        )
+
+        model.fit(toy_X, toy_y)
+
+        # Test disabling channel contributions
+        fig = model.plot_components_contributions(plot_channel=False)
+        assert isinstance(fig, plt.Figure)
+        plt.close("all")
+
+        # Test disabling yearly seasonality
+        fig = model.plot_components_contributions(plot_yearly_seasonality=False)
+        assert isinstance(fig, plt.Figure)
+        plt.close("all")
+
+        # Test disabling monthly seasonality
+        fig = model.plot_components_contributions(plot_monthly_seasonality=False)
+        assert isinstance(fig, plt.Figure)
+        plt.close("all")
+
+        # Test disabling weekly seasonality
+        fig = model.plot_components_contributions(plot_weekly_seasonality=False)
+        assert isinstance(fig, plt.Figure)
+        plt.close("all")
+
+        # Test disabling intercept
+        fig = model.plot_components_contributions(plot_intercept=False)
+        assert isinstance(fig, plt.Figure)
+        plt.close("all")
+
+        # Test disabling target
+        fig = model.plot_components_contributions(plot_target=False)
+        assert isinstance(fig, plt.Figure)
+        plt.close("all")
+
+        # Test disabling multiple components
+        fig = model.plot_components_contributions(
+            plot_monthly_seasonality=False,
+            plot_weekly_seasonality=False,
+            plot_intercept=False,
+        )
+        assert isinstance(fig, plt.Figure)
+        plt.close("all")
+
+        # Test only channel and target
+        fig = model.plot_components_contributions(
+            plot_yearly_seasonality=False,
+            plot_monthly_seasonality=False,
+            plot_weekly_seasonality=False,
+            plot_intercept=False,
+        )
+        assert isinstance(fig, plt.Figure)
+        plt.close("all")
+
+    def test_plot_components_contributions_invalid_backend(
+        self, toy_X, toy_y, mock_pymc_sample
+    ):
+        """Test that invalid backend raises ValueError."""
+        model = CustomMMM(
+            date_column="date",
+            channel_columns=["channel_1", "channel_2"],
+            adstock=GeometricAdstock(l_max=4),
+            saturation=LogisticSaturation(),
+            monthly_seasonality=1,
+        )
+
+        model.fit(toy_X, toy_y)
+
+        # This should fail at runtime, not at validation time
+        # because backend uses Literal type which is validated at call time
+        with pytest.raises(ValueError, match="Invalid backend"):
+            model.plot_components_contributions(backend="invalid")  # type: ignore
+
+    def test_plot_components_contributions_plotly_not_installed(
+        self, toy_X, toy_y, mock_pymc_sample, monkeypatch
+    ):
+        """Test that plotly backend raises ImportError when plotly is not installed."""
+        model = CustomMMM(
+            date_column="date",
+            channel_columns=["channel_1", "channel_2"],
+            adstock=GeometricAdstock(l_max=4),
+            saturation=LogisticSaturation(),
+            monthly_seasonality=1,
+        )
+
+        model.fit(toy_X, toy_y)
+
+        # Mock missing plotly import
+        import builtins
+
+        real_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if "plotly" in name:
+                raise ImportError("No module named 'plotly'")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", mock_import)
+
+        with pytest.raises(ImportError, match="plotly is required"):
+            model.plot_components_contributions(backend="plotly")
