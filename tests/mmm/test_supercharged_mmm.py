@@ -244,3 +244,36 @@ class TestCustomMMM:
 
         # Clean up
         os.remove("test_custom_save_load")
+
+    def test_plot_components_contributions_hvplot(self, toy_X, toy_y, mock_pymc_sample):
+        """Test that plot_components_contributions returns hvPlot overlay."""
+        import holoviews as hv
+
+        # Create and fit model with all seasonality types
+        model = CustomMMM(
+            date_column="date",
+            channel_columns=["channel_1", "channel_2"],
+            adstock=GeometricAdstock(l_max=4),
+            saturation=LogisticSaturation(),
+            yearly_seasonality=2,
+            monthly_seasonality=1,
+            weekly_seasonality=1,
+        )
+
+        model.fit(toy_X, toy_y)
+
+        # Test default plot
+        plot = model.plot_components_contributions()
+        assert isinstance(plot, hv.Overlay), "Should return holoviews Overlay"
+
+        # Test with original_scale=True
+        plot_original = model.plot_components_contributions(original_scale=True)
+        assert isinstance(plot_original, hv.Overlay), (
+            "Should return holoviews Overlay with original_scale"
+        )
+
+        # Test with custom hvplot kwargs
+        plot_custom = model.plot_components_contributions(width=1000, height=600)
+        assert isinstance(plot_custom, hv.Overlay), (
+            "Should return holoviews Overlay with custom kwargs"
+        )
