@@ -43,7 +43,7 @@ from pymc_marketing.mmm.components.saturation import (
     SaturationTransformation,
     saturation_from_dict,
 )
-from pymc_marketing.mmm.fourier import YearlyFourier
+from pymc_marketing.mmm.fourier import MonthlyFourier, WeeklyFourier, YearlyFourier
 from pymc_marketing.mmm.hsgp import SoftPlusHSGP
 from pymc_marketing.mmm.lift_test import (
     add_lift_measurements_to_likelihood_from_saturation,
@@ -62,7 +62,7 @@ from pymc_marketing.model_builder import _handle_deprecate_pred_argument
 from pymc_marketing.model_config import parse_model_config
 from pymc_marketing.model_graph import deterministics_to_flat
 
-__all__ = ["MMM", "BaseMMM"]
+__all__ = ["MMM", "BaseMMM", "CustomMMM"]
 
 DEFAULT_HDI_PROB = 0.94
 
@@ -3179,3 +3179,615 @@ class MMM(
                 alpha=0.1,
             )
         return fig
+
+
+class CustomMMM(MMM):
+    """Custom Media Mix Model with monthly and weekly seasonality support.
+
+    This class extends MMM to add monthly and weekly seasonality components
+    using MonthlyFourier and WeeklyFourier transformations.
+
+    By inheriting directly from MMM, this class has access to all MMM methods including
+    get_ts_contribution_posterior, plot_direct_contribution_curves,
+    sample_posterior_predictive, optimize_budget, and all other MMM functionality.
+
+    Parameters
+    ----------
+    date_column : str
+        Column name of the date variable.
+    channel_columns : list[str]
+        Column names of the media channel variables.
+    adstock : AdstockTransformation
+        Type of adstock transformation to apply.
+    saturation : SaturationTransformation
+        Type of saturation transformation to apply.
+    time_varying_intercept : bool, optional
+        Whether to consider time-varying intercept, by default False.
+    time_varying_media : bool, optional
+        Whether to consider time-varying media contributions, by default False.
+    model_config : dict, optional
+        Dictionary of parameters that initialise model configuration.
+    sampler_config : dict, optional
+        Dictionary of parameters that initialise sampler configuration.
+    validate_data : bool, optional
+        Whether to validate the data before fitting to model, by default True.
+    control_columns : list[str], optional
+        Column names of control variables to be added as additional regressors.
+    yearly_seasonality : int, optional
+        Number of Fourier modes to model yearly seasonality, by default None.
+    monthly_seasonality : int, optional
+        Number of Fourier modes to model monthly seasonality, by default None.
+    weekly_seasonality : int, optional
+        Number of Fourier modes to model weekly seasonality, by default None.
+    adstock_first : bool, optional
+        Whether to apply adstock first, by default True.
+    dag : str, optional
+        Optional DAG provided as a string Dot format for causal modeling.
+    treatment_nodes : list[str] | tuple[str], optional
+        Column names of the variables of interest to identify causal effects on outcome.
+    outcome_node : str, optional
+        Name of the outcome variable.
+    scaling : Scaling | dict, optional
+        Scaling configuration for the model.
+
+    Examples
+    --------
+    Create a CustomMMM with monthly and weekly seasonality:
+
+    .. code-block:: python
+
+        from pymc_marketing.mmm import (
+            GeometricAdstock,
+            LogisticSaturation,
+            CustomMMM,
+        )
+
+        model = CustomMMM(
+            date_column="date_week",
+            channel_columns=["x1", "x2"],
+            adstock=GeometricAdstock(l_max=8),
+            saturation=LogisticSaturation(),
+            yearly_seasonality=2,
+            monthly_seasonality=1,
+            weekly_seasonality=1,
+        )
+    """
+
+    _model_name: str = "CustomMMM"
+
+    @validate_call
+    def __init__(
+        self,
+        date_column: str = Field(..., description="Column name of the date variable."),
+        channel_columns: list[str] = Field(
+            min_length=1, description="Column names of the media channel variables."
+        ),
+        adstock: InstanceOf[AdstockTransformation] = Field(
+            ..., description="Type of adstock transformation to apply."
+        ),
+        saturation: InstanceOf[SaturationTransformation] = Field(
+            ..., description="Type of saturation transformation to apply."
+        ),
+        time_varying_intercept: bool = Field(
+            False, description="Whether to consider time-varying intercept."
+        ),
+        time_varying_media: bool = Field(
+            False, description="Whether to consider time-varying media contributions."
+        ),
+        model_config: dict | None = Field(None, description="Model configuration."),
+        sampler_config: dict | None = Field(None, description="Sampler configuration."),
+        validate_data: bool = Field(
+            True, description="Whether to validate the data before fitting to model"
+        ),
+        control_columns: Annotated[
+            list[str],
+            Field(
+                min_length=1,
+                description="Column names of control variables to be added as additional regressors",
+            ),
+        ]
+        | None = None,
+        yearly_seasonality: Annotated[
+            int,
+            Field(
+                gt=0, description="Number of Fourier modes to model yearly seasonality."
+            ),
+        ]
+        | None = None,
+        monthly_seasonality: Annotated[
+            int,
+            Field(
+                gt=0,
+                description="Number of Fourier modes to model monthly seasonality.",
+            ),
+        ]
+        | None = None,
+        weekly_seasonality: Annotated[
+            int,
+            Field(
+                gt=0, description="Number of Fourier modes to model weekly seasonality."
+            ),
+        ]
+        | None = None,
+        adstock_first: bool = Field(
+            True, description="Whether to apply adstock first."
+        ),
+        dag: str | None = Field(
+            None,
+            description="Optional DAG provided as a string Dot format for causal identification.",
+        ),
+        treatment_nodes: list[str] | tuple[str] | None = Field(
+            None,
+            description="Column names of the variables of interest to identify causal effects on outcome.",
+        ),
+        outcome_node: str | None = Field(
+            None, description="Name of the outcome variable."
+        ),
+        scaling: InstanceOf[Scaling] | dict | None = Field(
+            None, description="Scaling configuration for the model."
+        ),
+    ) -> None:
+        """Initialize the CustomMMM model."""
+        # Store monthly and weekly seasonality parameters BEFORE calling super().__init__()
+        # so they are available in default_model_config property
+        self.monthly_seasonality = monthly_seasonality
+        self.weekly_seasonality = weekly_seasonality
+
+        # Call parent constructor
+        super().__init__(
+            date_column=date_column,
+            channel_columns=channel_columns,
+            adstock=adstock,
+            saturation=saturation,
+            time_varying_intercept=time_varying_intercept,
+            time_varying_media=time_varying_media,
+            model_config=model_config,
+            sampler_config=sampler_config,
+            validate_data=validate_data,
+            control_columns=control_columns,
+            yearly_seasonality=yearly_seasonality,
+            adstock_first=adstock_first,
+            dag=dag,
+            treatment_nodes=treatment_nodes,
+            outcome_node=outcome_node,
+            scaling=scaling,
+        )
+
+        # Initialize MonthlyFourier if monthly_seasonality is provided
+        if self.monthly_seasonality is not None:
+            self.monthly_fourier = MonthlyFourier(
+                n_order=self.monthly_seasonality,
+                prefix="monthly_fourier_mode",
+                prior=self.model_config["gamma_monthly_fourier"],
+                variable_name="gamma_monthly_fourier",
+            )
+
+        # Initialize WeeklyFourier if weekly_seasonality is provided
+        if self.weekly_seasonality is not None:
+            self.weekly_fourier = WeeklyFourier(
+                n_order=self.weekly_seasonality,
+                prefix="weekly_fourier_mode",
+                prior=self.model_config["gamma_weekly_fourier"],
+                variable_name="gamma_weekly_fourier",
+            )
+
+    def _build_monthly_seasonality_contribution(self) -> pt.TensorVariable | None:
+        """Build monthly seasonality contribution variable.
+
+        Returns
+        -------
+        pt.TensorVariable | None
+            Monthly seasonality contribution or None if not enabled
+        """
+        if self.monthly_seasonality is None:
+            return None
+
+        X_data = self.preprocessed_data["X"]
+        if not isinstance(X_data, pd.DataFrame):
+            raise TypeError("X data must be a DataFrame for monthly seasonality")
+
+        # MonthlyFourier uses dayofyear internally, dividing by days_in_period (≈30.44)
+        dayofyear_value = X_data[self.date_column].dt.dayofyear.to_numpy()
+        dayofyear_data = pm.Data(
+            name="dayofyear_for_monthly", value=dayofyear_value, dims="date"
+        )
+
+        def create_deterministic(x: pt.TensorVariable) -> None:
+            pm.Deterministic(
+                "monthly_fourier_contribution",
+                x,
+                dims=("date", *self.monthly_fourier.prior.dims),
+            )
+
+        return pm.Deterministic(
+            name="monthly_seasonality_contribution",
+            var=self.monthly_fourier.apply(
+                dayofyear_data, result_callback=create_deterministic
+            ),
+            dims="date",
+        )
+
+    def _build_weekly_seasonality_contribution(self) -> pt.TensorVariable | None:
+        """Build weekly seasonality contribution variable.
+
+        Returns
+        -------
+        pt.TensorVariable | None
+            Weekly seasonality contribution or None if not enabled
+        """
+        if self.weekly_seasonality is None:
+            return None
+
+        X_data = self.preprocessed_data["X"]
+        if not isinstance(X_data, pd.DataFrame):
+            raise TypeError("X data must be a DataFrame for weekly seasonality")
+
+        # WeeklyFourier uses dayofyear internally, dividing by days_in_period (7)
+        # This is mathematically equivalent to dayofweek but avoids divergences with TVP
+        dayofyear_value = X_data[self.date_column].dt.dayofyear.to_numpy()
+        dayofyear_data = pm.Data(
+            name="dayofyear_for_weekly", value=dayofyear_value, dims="date"
+        )
+
+        def create_deterministic(x: pt.TensorVariable) -> None:
+            pm.Deterministic(
+                "weekly_fourier_contribution",
+                x,
+                dims=("date", *self.weekly_fourier.prior.dims),
+            )
+
+        return pm.Deterministic(
+            name="weekly_seasonality_contribution",
+            var=self.weekly_fourier.apply(
+                dayofyear_data, result_callback=create_deterministic
+            ),
+            dims="date",
+        )
+
+    def build_model(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        **kwargs,
+    ) -> None:
+        """Build a probabilistic model using PyMC for marketing mix modeling.
+
+        This method extends the BaseMMM build_model to include monthly and weekly
+        seasonality contributions.
+
+        Parameters
+        ----------
+        X : pd.DataFrame
+            The input data for the model.
+        y : pd.Series
+            The target/response variable.
+        **kwargs : dict
+            Additional keyword arguments.
+        """
+        self._generate_and_preprocess_model_data(X, y)
+        self._compute_scales()
+
+        with pm.Model(coords=self.model_coords) as self.model:
+            # Prepare data and scaling
+            X_data = self.preprocessed_data["X"]
+            if not isinstance(X_data, pd.DataFrame):
+                raise TypeError("X data must be a DataFrame")
+
+            y_data = self.preprocessed_data["y"]
+            if not isinstance(y_data, pd.Series):
+                raise TypeError("y data must be a Series")
+
+            channel_data_scaled, target_scaled, _, target_scale_ = (
+                self._create_scaled_data_variables(X_data[self.channel_columns], y_data)
+            )
+
+            # Create time index if needed
+            time_index = None
+            if self.time_varying_intercept or self.time_varying_media:
+                time_index = pm.Data("time_index", self._time_index, dims="date")
+
+            # Build model components
+            intercept = self._build_intercept(time_index)
+            channel_contribution = self._build_channel_contribution(
+                channel_data_scaled, time_index
+            )
+
+            # Total contribution deterministic for optimization
+            pm.Deterministic(
+                name="total_contribution",
+                var=channel_contribution.sum(axis=(-2, -1)),
+                dims=(),
+            )
+
+            # Build mu starting with intercept and channels
+            mu_var = intercept + channel_contribution.sum(axis=-1)
+
+            # Add control contribution if present
+            control_contribution = self._build_control_contribution()
+            if control_contribution is not None:
+                mu_var += control_contribution.sum(axis=-1)
+
+            # Add yearly seasonality if present
+            yearly_seasonality_contribution = (
+                self._build_yearly_seasonality_contribution()
+            )
+            if yearly_seasonality_contribution is not None:
+                mu_var += yearly_seasonality_contribution
+
+            # Add monthly seasonality if present
+            monthly_seasonality_contribution = (
+                self._build_monthly_seasonality_contribution()
+            )
+            if monthly_seasonality_contribution is not None:
+                mu_var += monthly_seasonality_contribution
+
+            # Add weekly seasonality if present
+            weekly_seasonality_contribution = (
+                self._build_weekly_seasonality_contribution()
+            )
+            if weekly_seasonality_contribution is not None:
+                mu_var += weekly_seasonality_contribution
+
+            # Create mu deterministic
+            mu = pm.Deterministic(name="mu", var=mu_var, dims="date")
+
+            # Create likelihood
+            self.model_config["likelihood"].dims = "date"
+            self.model_config["likelihood"].create_likelihood_variable(
+                name=self.output_var,
+                mu=mu,
+                observed=target_scaled,
+            )
+
+            # Add original scale deterministics
+            self._add_original_scale_deterministics(
+                channel_contribution,
+                target_scale_,
+                control_contribution,
+                yearly_seasonality_contribution,
+                monthly_seasonality_contribution,
+                weekly_seasonality_contribution,
+                mu,
+            )
+
+    def _add_original_scale_deterministics(
+        self,
+        channel_contribution: pt.TensorVariable,
+        target_scale: pt.TensorVariable,
+        control_contribution: pt.TensorVariable | None,
+        yearly_seasonality_contribution: pt.TensorVariable | None,
+        monthly_seasonality_contribution: pt.TensorVariable | None,
+        weekly_seasonality_contribution: pt.TensorVariable | None,
+        mu: pt.TensorVariable,
+    ) -> None:
+        """Add deterministic variables in original scale.
+
+        Parameters
+        ----------
+        channel_contribution : pt.TensorVariable
+            Channel contribution in scaled space
+        target_scale : pt.TensorVariable
+            Target scaling factor
+        control_contribution : pt.TensorVariable | None
+            Control contribution in scaled space
+        yearly_seasonality_contribution : pt.TensorVariable | None
+            Yearly seasonality contribution in scaled space
+        monthly_seasonality_contribution : pt.TensorVariable | None
+            Monthly seasonality contribution in scaled space
+        weekly_seasonality_contribution : pt.TensorVariable | None
+            Weekly seasonality contribution in scaled space
+        mu : pt.TensorVariable
+            Model prediction in scaled space
+        """
+        pm.Deterministic(
+            name="channel_contribution_original_scale",
+            var=channel_contribution * target_scale,
+            dims=("date", "channel"),
+        )
+        pm.Deterministic(
+            name="total_contribution_original_scale",
+            var=channel_contribution.sum(axis=-1) * target_scale,
+            dims="date",
+        )
+
+        if control_contribution is not None:
+            pm.Deterministic(
+                name="control_contribution_original_scale",
+                var=control_contribution * target_scale,
+                dims=("date", "control"),
+            )
+
+        if yearly_seasonality_contribution is not None:
+            pm.Deterministic(
+                name="yearly_seasonality_contribution_original_scale",
+                var=yearly_seasonality_contribution * target_scale,
+                dims="date",
+            )
+
+        if monthly_seasonality_contribution is not None:
+            pm.Deterministic(
+                name="monthly_seasonality_contribution_original_scale",
+                var=monthly_seasonality_contribution * target_scale,
+                dims="date",
+            )
+
+        if weekly_seasonality_contribution is not None:
+            pm.Deterministic(
+                name="weekly_seasonality_contribution_original_scale",
+                var=weekly_seasonality_contribution * target_scale,
+                dims="date",
+            )
+
+        pm.Deterministic(
+            name="y_original_scale",
+            var=(mu * target_scale),
+            dims="date",
+        )
+
+    @property
+    def default_model_config(self) -> dict:
+        """Define the default model configuration including monthly and weekly Fourier priors."""
+        config = super().default_model_config
+
+        # Add priors for monthly and weekly Fourier modes
+        if self.monthly_seasonality is not None:
+            config["gamma_monthly_fourier"] = Prior(
+                "Laplace", mu=0, b=1, dims="monthly_fourier_mode"
+            )
+
+        if self.weekly_seasonality is not None:
+            config["gamma_weekly_fourier"] = Prior(
+                "Laplace", mu=0, b=1, dims="weekly_fourier_mode"
+            )
+
+        return config
+
+    def plot_components_contributions(
+        self, original_scale: bool = False, **plt_kwargs: Any
+    ) -> plt.Figure:
+        """Plot the target variable and the posterior predictive model components.
+
+        This method extends the parent implementation to include monthly and weekly
+        seasonality contributions.
+
+        Parameters
+        ----------
+        original_scale : bool, optional
+            Whether to plot in the original scale.
+        **plt_kwargs
+            Additional keyword arguments to pass to `plt.subplots`.
+
+        Returns
+        -------
+        plt.Figure
+            Figure with component contributions plotted.
+        """
+        # Collect contributions and their HDIs
+        channel_contribution = self.get_ts_contribution_posterior(
+            var_contribution="channel_contribution", original_scale=original_scale
+        )
+
+        means = [channel_contribution.mean(["chain", "draw"])]
+        contribution_vars = [
+            az.hdi(channel_contribution, hdi_prob=DEFAULT_HDI_PROB).channel_contribution
+        ]
+        contribution_names = ["channel_contribution"]
+
+        # Add optional contributions (controls and all seasonality types)
+        component_mapping = [
+            ("control_columns", "control_contribution", "control_contribution"),
+            ("yearly_seasonality", "fourier_contribution", "yearly_seasonality"),
+            (
+                "monthly_seasonality",
+                "monthly_seasonality_contribution",
+                "monthly_seasonality",
+            ),
+            (
+                "weekly_seasonality",
+                "weekly_seasonality_contribution",
+                "weekly_seasonality",
+            ),
+        ]
+
+        for attr_name, var_name, display_name in component_mapping:
+            if getattr(self, attr_name, None):
+                contributions = self.get_ts_contribution_posterior(
+                    var_contribution=var_name, original_scale=original_scale
+                )
+                means.append(contributions.mean(["chain", "draw"]))
+                contribution_vars.append(
+                    az.hdi(contributions, hdi_prob=DEFAULT_HDI_PROB)[var_name]
+                )
+                contribution_names.append(display_name)
+
+        # Create plot
+        fig, ax = plt.subplots(**plt_kwargs)
+
+        if self.X is None:
+            return fig
+
+        dates = self.X[self.date_column]
+
+        # Plot contributions
+        for i, (mean, hdi, var_name) in enumerate(
+            zip(means, contribution_vars, contribution_names, strict=False)
+        ):
+            ax.fill_between(
+                x=dates,
+                y1=hdi.isel(hdi=0),
+                y2=hdi.isel(hdi=1),
+                color=f"C{i}",
+                alpha=0.25,
+                label=f"$94\\%$ HDI ({var_name})",
+            )
+            ax.plot(dates, np.asarray(mean), color=f"C{i}")
+
+        # Plot intercept
+        intercept_mean, intercept_hdi = self._get_intercept_for_plot(original_scale)
+        color_idx = len(means)
+
+        # Use scalar intercept if possible, otherwise array
+        if np.ndim(intercept_mean) == 0:
+            # Scalar intercept - matplotlib handles broadcasting automatically
+            ax.axhline(y=intercept_mean, color=f"C{color_idx}")
+        else:
+            # Time-varying intercept
+            ax.plot(dates, intercept_mean, color=f"C{color_idx}")
+
+        ax.fill_between(
+            x=dates,
+            y1=intercept_hdi[:, 0],
+            y2=intercept_hdi[:, 1],
+            color=f"C{color_idx}",
+            alpha=0.25,
+            label="$94\\%$ HDI (intercept)",
+        )
+
+        # Plot target
+        y_to_plot = self._get_target_for_plot(original_scale)
+        ylabel = self.output_var if original_scale else f"{self.output_var} scaled"
+
+        ax.plot(dates, y_to_plot, label=ylabel, color="black")
+        ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.1), ncol=3)
+        ax.set(
+            title="Posterior Predictive Model Components (with Enhanced Seasonality)",
+            xlabel="date",
+            ylabel=ylabel,
+        )
+
+        return fig
+
+    def create_idata_attrs(self) -> dict[str, str]:
+        """Create attributes for the inference data.
+
+        Extends parent method to include monthly and weekly seasonality parameters.
+
+        Returns
+        -------
+        dict[str, str]
+            The attributes for the inference data.
+        """
+        attrs = super().create_idata_attrs()
+        attrs["monthly_seasonality"] = json.dumps(self.monthly_seasonality)
+        attrs["weekly_seasonality"] = json.dumps(self.weekly_seasonality)
+        return attrs
+
+    @classmethod
+    def attrs_to_init_kwargs(cls, attrs) -> dict[str, Any]:
+        """Convert attributes to initialization kwargs.
+
+        Extends parent method to include monthly and weekly seasonality parameters.
+
+        Returns
+        -------
+        dict[str, Any]
+            The initialization kwargs.
+        """
+        kwargs = super().attrs_to_init_kwargs(attrs)
+        kwargs["monthly_seasonality"] = json.loads(
+            attrs.get("monthly_seasonality", "null")
+        )
+        kwargs["weekly_seasonality"] = json.loads(
+            attrs.get("weekly_seasonality", "null")
+        )
+        return kwargs

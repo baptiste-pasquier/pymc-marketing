@@ -58,7 +58,7 @@ from pymc_marketing.mmm.media_transformation import (
     MediaConfigList,
     MediaTransformation,
 )
-from pymc_marketing.mmm.mmm import MMM
+from pymc_marketing.mmm.mmm import MMM, CustomMMM
 from pymc_marketing.mmm.preprocessing import (
     preprocessing_method_X,
     preprocessing_method_y,
@@ -78,6 +78,7 @@ __all__ = [
     "BaseValidateMMM",
     "BinomialAdstock",
     "CovFunc",
+    "CustomMMM",
     "DelayedAdstock",
     "FancyLinearRegression",
     "GeometricAdstock",
