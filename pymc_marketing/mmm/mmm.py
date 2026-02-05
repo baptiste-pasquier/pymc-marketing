@@ -20,6 +20,7 @@ from collections.abc import Sequence
 from typing import Annotated, Any, Literal
 
 import arviz as az
+import hvplot.pandas  # noqa: F401
 import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
@@ -3643,25 +3644,27 @@ class CustomMMM(MMM):
         return config
 
     def plot_components_contributions(
-        self, original_scale: bool = False, **plt_kwargs: Any
-    ) -> plt.Figure:
-        """Plot the target variable and the posterior predictive model components.
+        self, original_scale: bool = False, **hvplot_kwargs: Any
+    ):
+        """Plot the target variable and the posterior predictive model components using hvPlot.
 
         This method extends the parent implementation to include monthly and weekly
-        seasonality contributions.
+        seasonality contributions, using interactive hvPlot visualizations.
 
         Parameters
         ----------
         original_scale : bool, optional
             Whether to plot in the original scale.
-        **plt_kwargs
-            Additional keyword arguments to pass to `plt.subplots`.
+        **hvplot_kwargs
+            Additional keyword arguments to pass to hvPlot.
 
         Returns
         -------
-        plt.Figure
-            Figure with component contributions plotted.
+        holoviews.core.overlay.Overlay
+            Interactive hvPlot overlay with component contributions plotted.
         """
+        import holoviews as hv
+
         # Collect contributions and their HDIs
         channel_contribution = self.get_ts_contribution_posterior(
             var_contribution="channel_contribution", original_scale=original_scale
@@ -3700,62 +3703,127 @@ class CustomMMM(MMM):
                 )
                 contribution_names.append(display_name)
 
-        # Create plot
-        fig, ax = plt.subplots(**plt_kwargs)
-
         if self.X is None:
-            return fig
+            # Return empty overlay if no data
+            return hv.Overlay()
 
         dates = self.X[self.date_column]
 
-        # Plot contributions
-        for i, (mean, hdi, var_name) in enumerate(
-            zip(means, contribution_vars, contribution_names, strict=False)
-        ):
-            ax.fill_between(
-                x=dates,
-                y1=hdi.isel(hdi=0),
-                y2=hdi.isel(hdi=1),
-                color=f"C{i}",
-                alpha=0.25,
-                label=f"$94\\%$ HDI ({var_name})",
-            )
-            ax.plot(dates, np.asarray(mean), color=f"C{i}")
+        # Prepare data for hvPlot
+        plot_data = pd.DataFrame({"date": dates})
 
-        # Plot intercept
+        # Add mean contributions
+        for i, (mean, var_name) in enumerate(zip(means, contribution_names, strict=False)):
+            plot_data[f"{var_name}_mean"] = np.asarray(mean)
+
+        # Add HDI bounds
+        for i, (hdi, var_name) in enumerate(zip(contribution_vars, contribution_names, strict=False)):
+            plot_data[f"{var_name}_lower"] = hdi.isel(hdi=0).values
+            plot_data[f"{var_name}_upper"] = hdi.isel(hdi=1).values
+
+        # Add intercept
         intercept_mean, intercept_hdi = self._get_intercept_for_plot(original_scale)
-        color_idx = len(means)
 
-        # Use scalar intercept if possible, otherwise array
         if np.ndim(intercept_mean) == 0:
-            # Scalar intercept - matplotlib handles broadcasting automatically
-            ax.axhline(y=intercept_mean, color=f"C{color_idx}")
+            # Scalar intercept
+            plot_data["intercept_mean"] = intercept_mean
         else:
             # Time-varying intercept
-            ax.plot(dates, intercept_mean, color=f"C{color_idx}")
+            plot_data["intercept_mean"] = intercept_mean
 
-        ax.fill_between(
-            x=dates,
-            y1=intercept_hdi[:, 0],
-            y2=intercept_hdi[:, 1],
-            color=f"C{color_idx}",
-            alpha=0.25,
-            label="$94\\%$ HDI (intercept)",
-        )
+        plot_data["intercept_lower"] = intercept_hdi[:, 0]
+        plot_data["intercept_upper"] = intercept_hdi[:, 1]
 
-        # Plot target
+        # Add target
         y_to_plot = self._get_target_for_plot(original_scale)
         ylabel = self.output_var if original_scale else f"{self.output_var} scaled"
+        plot_data[ylabel] = y_to_plot
 
-        ax.plot(dates, y_to_plot, label=ylabel, color="black")
-        ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.1), ncol=3)
-        ax.set(
+        # Create hvPlot overlay
+        overlay = None
+
+        # Default hvplot_kwargs
+        default_kwargs = {
+            "x": "date",
+            "width": 800,
+            "height": 400,
+            "legend": "top_left",
+        }
+        default_kwargs.update(hvplot_kwargs)
+
+        # Plot contributions with HDI bands
+        for i, var_name in enumerate(contribution_names):
+            mean_col = f"{var_name}_mean"
+            lower_col = f"{var_name}_lower"
+            upper_col = f"{var_name}_upper"
+
+            # Plot mean line
+            line_plot = plot_data.hvplot.line(
+                x="date",
+                y=mean_col,
+                label=var_name,
+                color=f"C{i}",
+                **{k: v for k, v in default_kwargs.items() if k not in ["x", "y", "label", "color"]},
+            )
+
+            # Plot HDI area
+            area_plot = plot_data.hvplot.area(
+                x="date",
+                y=lower_col,
+                y2=upper_col,
+                label=f"94% HDI ({var_name})",
+                alpha=0.25,
+                color=f"C{i}",
+                **{k: v for k, v in default_kwargs.items() if k not in ["x", "y", "y2", "label", "alpha", "color"]},
+            )
+
+            if overlay is None:
+                overlay = line_plot * area_plot
+            else:
+                overlay = overlay * line_plot * area_plot
+
+        # Plot intercept
+        color_idx = len(contribution_names)
+        intercept_line = plot_data.hvplot.line(
+            x="date",
+            y="intercept_mean",
+            label="intercept",
+            color=f"C{color_idx}",
+            **{k: v for k, v in default_kwargs.items() if k not in ["x", "y", "label", "color"]},
+        )
+
+        intercept_area = plot_data.hvplot.area(
+            x="date",
+            y="intercept_lower",
+            y2="intercept_upper",
+            label="94% HDI (intercept)",
+            alpha=0.25,
+            color=f"C{color_idx}",
+            **{k: v for k, v in default_kwargs.items() if k not in ["x", "y", "y2", "label", "alpha", "color"]},
+        )
+
+        overlay = overlay * intercept_line * intercept_area
+
+        # Plot target
+        target_line = plot_data.hvplot.line(
+            x="date",
+            y=ylabel,
+            label=ylabel,
+            color="black",
+            line_width=2,
+            **{k: v for k, v in default_kwargs.items() if k not in ["x", "y", "label", "color", "line_width"]},
+        )
+
+        overlay = overlay * target_line
+
+        # Set title and labels
+        overlay = overlay.opts(
             title="Posterior Predictive Model Components (with Enhanced Seasonality)",
             xlabel="date",
             ylabel=ylabel,
         )
 
-        return fig
+        return overlay
 
     def create_idata_attrs(self) -> dict[str, str]:
         """Create attributes for the inference data.
