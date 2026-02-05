@@ -3713,11 +3713,11 @@ class CustomMMM(MMM):
         plot_data = pd.DataFrame({"date": dates})
 
         # Add mean contributions
-        for i, (mean, var_name) in enumerate(zip(means, contribution_names, strict=False)):
+        for mean, var_name in zip(means, contribution_names, strict=False):
             plot_data[f"{var_name}_mean"] = np.asarray(mean)
 
         # Add HDI bounds
-        for i, (hdi, var_name) in enumerate(zip(contribution_vars, contribution_names, strict=False)):
+        for hdi, var_name in zip(contribution_vars, contribution_names, strict=False):
             plot_data[f"{var_name}_lower"] = hdi.isel(hdi=0).values
             plot_data[f"{var_name}_upper"] = hdi.isel(hdi=1).values
 
