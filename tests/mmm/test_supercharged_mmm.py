@@ -277,3 +277,39 @@ class TestCustomMMM:
         assert isinstance(plot_custom, hv.Overlay), (
             "Should return holoviews Overlay with custom kwargs"
         )
+
+    def test_plot_posterior_residuals(self, toy_X, toy_y, mock_pymc_sample):
+        """Test that plot_posterior_residuals returns a matplotlib Figure."""
+        from matplotlib import pyplot as plt
+
+        # Create and fit model
+        model = CustomMMM(
+            date_column="date",
+            channel_columns=["channel_1", "channel_2"],
+            adstock=GeometricAdstock(l_max=4),
+            saturation=LogisticSaturation(),
+            monthly_seasonality=1,
+        )
+
+        model.fit(toy_X, toy_y)
+
+        # Test default plot
+        fig = model.plot_posterior_residuals()
+        assert isinstance(fig, plt.Figure), "Should return matplotlib Figure"
+        plt.close(fig)
+
+        # Test with original_scale=True
+        fig_original = model.plot_posterior_residuals(original_scale=True)
+        assert isinstance(fig_original, plt.Figure), (
+            "Should return matplotlib Figure with original_scale"
+        )
+        plt.close(fig_original)
+
+        # Test with custom axes
+        fig_custom, ax_custom = plt.subplots()
+        fig_result = model.plot_posterior_residuals(ax=ax_custom)
+        assert isinstance(fig_result, plt.Figure), (
+            "Should return matplotlib Figure with custom axes"
+        )
+        assert fig_result == fig_custom, "Should use provided figure"
+        plt.close(fig_custom)

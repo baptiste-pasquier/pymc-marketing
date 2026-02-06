@@ -3846,6 +3846,87 @@ class CustomMMM(MMM):
 
         return overlay
 
+    def plot_posterior_residuals(
+        self, original_scale: bool = False, ax: plt.Axes = None, **plt_kwargs: Any
+    ) -> plt.Figure:
+        """Plot posterior residuals (difference between observed and predicted values).
+
+        This method plots the residuals from the posterior predictive distribution,
+        showing the difference between the observed data and the model's predictions.
+        The residuals are calculated as: residuals = observed - predicted.
+
+        Parameters
+        ----------
+        original_scale : bool, optional
+            If True, plot residuals in the original scale of the target variable.
+            If False, plot in the transformed scale used for modeling. Default is False.
+        ax : plt.Axes, optional
+            A matplotlib Axes object to plot on. If None, a new figure and axes will be created.
+        **plt_kwargs : dict
+            Additional keyword arguments to pass to plt.subplots() when creating a new figure.
+
+        Returns
+        -------
+        plt.Figure
+            The matplotlib Figure object containing the residuals plot.
+
+        Raises
+        ------
+        RuntimeError
+            If the model has not been fitted or posterior_predictive has not been sampled.
+
+        Notes
+        -----
+        This function visualizes the model's residuals with HDI (Highest Density Intervals)
+        at 94% and 50% levels to show uncertainty in the residuals. A horizontal line at
+        zero is included to help identify systematic over/under-prediction.
+
+        Examples
+        --------
+        .. code-block:: python
+
+            # Plot residuals in transformed scale
+            fig = model.plot_posterior_residuals()
+
+            # Plot residuals in original scale
+            fig = model.plot_posterior_residuals(original_scale=True)
+
+        """
+        errors = self.get_errors(original_scale=original_scale)
+
+        if ax is None:
+            fig, ax = plt.subplots(**plt_kwargs)
+        else:
+            fig = ax.figure
+
+        for hdi_prob, alpha in zip((0.94, 0.50), (0.2, 0.4), strict=True):
+            errors_hdi = az.hdi(ary=errors, hdi_prob=hdi_prob)
+
+            ax.fill_between(
+                x=self.posterior_predictive.date,
+                y1=errors_hdi["errors"].sel(hdi="lower"),
+                y2=errors_hdi["errors"].sel(hdi="higher"),
+                color="C3",
+                alpha=alpha,
+                label=f"${100 * hdi_prob}\\%$ HDI",
+            )
+
+        ax.plot(
+            self.posterior_predictive.date,
+            errors.mean(dim=("chain", "draw")).to_numpy(),
+            color="C3",
+            label="Residuals Mean",
+        )
+
+        ax.axhline(y=0.0, linestyle="--", color="black", label="zero")
+        ax.legend()
+        ax.set(
+            title="Posterior Residuals Distribution",
+            xlabel="date",
+            ylabel="observed - predicted",
+        )
+        return fig
+
     def create_idata_attrs(self) -> dict[str, str]:
         """Create attributes for the inference data.
 
