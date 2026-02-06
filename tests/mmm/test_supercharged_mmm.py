@@ -292,6 +292,8 @@ class TestCustomMMM:
         )
 
         model.fit(toy_X, toy_y)
+        # Need to sample posterior predictive for residuals plot
+        model.sample_posterior_predictive(toy_X, extend_idata=True, combined=True)
 
         # Test default plot
         fig = model.plot_posterior_residuals()
