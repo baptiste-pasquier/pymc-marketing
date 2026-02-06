@@ -3847,7 +3847,7 @@ class CustomMMM(MMM):
         return overlay
 
     def plot_posterior_residuals(
-        self, original_scale: bool = False, ax: plt.Axes = None, **plt_kwargs: Any
+        self, original_scale: bool = False, ax: plt.Axes | None = None, **plt_kwargs: Any
     ) -> plt.Figure:
         """Plot posterior residuals (difference between observed and predicted values).
 
