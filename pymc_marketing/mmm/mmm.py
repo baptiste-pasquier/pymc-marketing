@@ -3847,9 +3847,9 @@ class CustomMMM(MMM):
         return overlay
 
     def plot_posterior_residuals(
-        self, original_scale: bool = False, ax: plt.Axes | None = None, **plt_kwargs: Any
-    ) -> plt.Figure:
-        """Plot posterior residuals (difference between observed and predicted values).
+        self, original_scale: bool = False, **hvplot_kwargs: Any
+    ):  # -> holoviews.core.overlay.Overlay
+        """Plot posterior residuals (difference between observed and predicted values) using hvPlot.
 
         This method plots the residuals from the posterior predictive distribution,
         showing the difference between the observed data and the model's predictions.
@@ -3860,15 +3860,13 @@ class CustomMMM(MMM):
         original_scale : bool, optional
             If True, plot residuals in the original scale of the target variable.
             If False, plot in the transformed scale used for modeling. Default is False.
-        ax : plt.Axes, optional
-            A matplotlib Axes object to plot on. If None, a new figure and axes will be created.
-        **plt_kwargs : dict
-            Additional keyword arguments to pass to plt.subplots() when creating a new figure.
+        **hvplot_kwargs : dict
+            Additional keyword arguments to pass to hvPlot.
 
         Returns
         -------
-        plt.Figure
-            The matplotlib Figure object containing the residuals plot.
+        holoviews.core.overlay.Overlay
+            Interactive hvPlot overlay with residuals plotted.
 
         Raises
         ------
@@ -3886,46 +3884,107 @@ class CustomMMM(MMM):
         .. code-block:: python
 
             # Plot residuals in transformed scale
-            fig = model.plot_posterior_residuals()
+            overlay = model.plot_posterior_residuals()
 
             # Plot residuals in original scale
-            fig = model.plot_posterior_residuals(original_scale=True)
+            overlay = model.plot_posterior_residuals(original_scale=True)
+
+            # Customize plot
+            overlay = model.plot_posterior_residuals(width=1000, height=400)
 
         """
+        import holoviews as hv
+
         errors = self.get_errors(original_scale=original_scale)
 
-        if ax is None:
-            fig, ax = plt.subplots(**plt_kwargs)
-        else:
-            fig = ax.figure
+        # Prepare data for hvPlot
+        plot_data = pd.DataFrame({
+            "date": self.posterior_predictive.date.values,
+            "residuals_mean": errors.mean(dim=("chain", "draw")).to_numpy(),
+        })
 
-        for hdi_prob, alpha in zip((0.94, 0.50), (0.2, 0.4), strict=True):
+        # Calculate HDI bounds
+        for hdi_prob in [0.94, 0.50]:
             errors_hdi = az.hdi(ary=errors, hdi_prob=hdi_prob)
+            plot_data[f"hdi_{int(hdi_prob * 100)}_lower"] = errors_hdi["errors"].sel(hdi="lower").values
+            plot_data[f"hdi_{int(hdi_prob * 100)}_upper"] = errors_hdi["errors"].sel(hdi="higher").values
 
-            ax.fill_between(
-                x=self.posterior_predictive.date,
-                y1=errors_hdi["errors"].sel(hdi="lower"),
-                y2=errors_hdi["errors"].sel(hdi="higher"),
-                color="C3",
-                alpha=alpha,
-                label=f"${100 * hdi_prob}\\%$ HDI",
-            )
+        # Default hvplot_kwargs
+        default_kwargs = {
+            "x": "date",
+            "width": 1200,
+            "height": 600,
+            "legend": "top_left",
+        }
+        default_kwargs.update(hvplot_kwargs)
 
-        ax.plot(
-            self.posterior_predictive.date,
-            errors.mean(dim=("chain", "draw")).to_numpy(),
-            color="C3",
-            label="Residuals Mean",
+        # Helper function to exclude specific keys from default kwargs
+        def exclude_kwargs(*keys_to_exclude):
+            return {k: v for k, v in default_kwargs.items() if k not in keys_to_exclude}
+
+        # Red color for residuals (consistent with matplotlib C3)
+        residual_color = "#d62728"
+
+        # Create overlay
+        overlay = hv.Overlay()
+
+        # Plot 94% HDI band (lighter)
+        hdi_94_area = plot_data.hvplot.area(
+            x="date",
+            y="hdi_94_lower",
+            y2="hdi_94_upper",
+            label="94% HDI",
+            alpha=0.2,
+            color=residual_color,
+            **exclude_kwargs("x", "y", "y2", "label", "alpha", "color"),
         )
+        overlay *= hdi_94_area
 
-        ax.axhline(y=0.0, linestyle="--", color="black", label="zero")
-        ax.legend()
-        ax.set(
+        # Plot 50% HDI band (darker)
+        hdi_50_area = plot_data.hvplot.area(
+            x="date",
+            y="hdi_50_lower",
+            y2="hdi_50_upper",
+            label="50% HDI",
+            alpha=0.4,
+            color=residual_color,
+            **exclude_kwargs("x", "y", "y2", "label", "alpha", "color"),
+        )
+        overlay *= hdi_50_area
+
+        # Plot mean residuals line
+        mean_line = plot_data.hvplot.line(
+            x="date",
+            y="residuals_mean",
+            label="Residuals Mean",
+            color=residual_color,
+            **exclude_kwargs("x", "y", "label", "color"),
+        )
+        overlay *= mean_line
+
+        # Add horizontal line at zero
+        zero_line = hv.HLine(0).opts(
+            color="black",
+            line_dash="dashed",
+            line_width=1,
+        )
+        overlay *= zero_line
+
+        # Set title and labels
+        ylabel = "observed - predicted"
+        if original_scale:
+            ylabel = f"{ylabel} (original scale)"
+        else:
+            ylabel = f"{ylabel} (scaled)"
+
+        overlay = overlay.opts(
             title="Posterior Residuals Distribution",
             xlabel="date",
-            ylabel="observed - predicted",
+            ylabel=ylabel,
+            show_legend=True,
         )
-        return fig
+
+        return overlay
 
     def create_idata_attrs(self) -> dict[str, str]:
         """Create attributes for the inference data.

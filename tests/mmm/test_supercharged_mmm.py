@@ -279,8 +279,8 @@ class TestCustomMMM:
         )
 
     def test_plot_posterior_residuals(self, toy_X, toy_y, mock_pymc_sample):
-        """Test that plot_posterior_residuals returns a matplotlib Figure."""
-        from matplotlib import pyplot as plt
+        """Test that plot_posterior_residuals returns a holoviews Overlay."""
+        import holoviews as hv
 
         # Create and fit model
         model = CustomMMM(
@@ -296,22 +296,17 @@ class TestCustomMMM:
         model.sample_posterior_predictive(toy_X, extend_idata=True, combined=True)
 
         # Test default plot
-        fig = model.plot_posterior_residuals()
-        assert isinstance(fig, plt.Figure), "Should return matplotlib Figure"
-        plt.close(fig)
+        overlay = model.plot_posterior_residuals()
+        assert isinstance(overlay, hv.Overlay), "Should return holoviews Overlay"
 
         # Test with original_scale=True
-        fig_original = model.plot_posterior_residuals(original_scale=True)
-        assert isinstance(fig_original, plt.Figure), (
-            "Should return matplotlib Figure with original_scale"
+        overlay_original = model.plot_posterior_residuals(original_scale=True)
+        assert isinstance(overlay_original, hv.Overlay), (
+            "Should return holoviews Overlay with original_scale"
         )
-        plt.close(fig_original)
 
-        # Test with custom axes
-        fig_custom, ax_custom = plt.subplots()
-        fig_result = model.plot_posterior_residuals(ax=ax_custom)
-        assert isinstance(fig_result, plt.Figure), (
-            "Should return matplotlib Figure with custom axes"
+        # Test with custom hvplot kwargs
+        overlay_custom = model.plot_posterior_residuals(width=1000, height=400)
+        assert isinstance(overlay_custom, hv.Overlay), (
+            "Should return holoviews Overlay with custom kwargs"
         )
-        assert fig_result == fig_custom, "Should use provided figure"
-        plt.close(fig_custom)
