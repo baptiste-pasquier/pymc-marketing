@@ -277,3 +277,58 @@ class TestCustomMMM:
         assert isinstance(plot_custom, hv.Overlay), (
             "Should return holoviews Overlay with custom kwargs"
         )
+
+    def test_plot_posterior_predictive_hvplot(self, toy_X, toy_y):
+        """Test that plot_posterior_predictive returns hvPlot overlay."""
+        import holoviews as hv
+
+        from tests.mmm.conftest import mock_fit
+
+        # Create model
+        model = CustomMMM(
+            date_column="date",
+            channel_columns=["channel_1", "channel_2"],
+            adstock=GeometricAdstock(l_max=4),
+            saturation=LogisticSaturation(),
+            monthly_seasonality=1,
+        )
+
+        # Fit the model using mock_fit
+        mock_fit(model, toy_X, toy_y)
+
+        # Sample posterior predictive
+        model.sample_posterior_predictive(toy_X, extend_idata=True, combined=True)
+
+        # Test default plot
+        plot = model.plot_posterior_predictive()
+        assert isinstance(plot, hv.Overlay), "Should return holoviews Overlay"
+
+        # Test with original_scale=True
+        plot_original = model.plot_posterior_predictive(original_scale=True)
+        assert isinstance(plot_original, hv.Overlay), (
+            "Should return holoviews Overlay with original_scale"
+        )
+
+        # Test with add_mean=False
+        plot_no_mean = model.plot_posterior_predictive(add_mean=False)
+        assert isinstance(plot_no_mean, hv.Overlay), (
+            "Should return holoviews Overlay without mean"
+        )
+
+        # Test with empty hdi_list
+        plot_no_hdi = model.plot_posterior_predictive(hdi_list=[])
+        assert isinstance(plot_no_hdi, hv.Overlay), (
+            "Should return holoviews Overlay without HDI"
+        )
+
+        # Test with custom hdi_list
+        plot_custom_hdi = model.plot_posterior_predictive(hdi_list=[0.94])
+        assert isinstance(plot_custom_hdi, hv.Overlay), (
+            "Should return holoviews Overlay with custom HDI"
+        )
+
+        # Test with custom hvplot kwargs
+        plot_custom = model.plot_posterior_predictive(width=1000, height=600)
+        assert isinstance(plot_custom, hv.Overlay), (
+            "Should return holoviews Overlay with custom kwargs"
+        )

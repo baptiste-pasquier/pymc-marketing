@@ -57,6 +57,7 @@ from pymc_marketing.mmm.utility import UtilityFunctionType, average_response
 from pymc_marketing.mmm.utils import (
     apply_sklearn_transformer_across_dim,
     create_new_spend_data,
+    transform_1d_array,
 )
 from pymc_marketing.mmm.validating import ValidateControlColumns
 from pymc_marketing.model_builder import _handle_deprecate_pred_argument
@@ -3839,6 +3840,169 @@ class CustomMMM(MMM):
         # Set title and labels
         overlay = overlay.opts(
             title="Posterior Predictive Model Components (with Enhanced Seasonality)",
+            xlabel="date",
+            ylabel=ylabel,
+            click_policy="hide",
+        )
+
+        return overlay
+
+    def plot_posterior_predictive(  # type: ignore[override]
+        self,
+        original_scale: bool = False,
+        hdi_list: list[float] | None = None,
+        add_mean: bool = True,
+        **hvplot_kwargs: Any,
+    ):  # -> holoviews.core.overlay.Overlay
+        """Plot the posterior predictive distribution using hvPlot.
+
+        This method extends the base implementation to provide an interactive
+        hvPlot visualization instead of matplotlib.
+
+        Parameters
+        ----------
+        original_scale : bool, optional
+            If True, plot in the original scale of the target variable.
+            If False, plot in the transformed scale used for modeling. Default is False.
+        hdi_list : list of float, optional
+            List of HDI levels to plot. Default is [0.94, 0.5]. Provide an empty list
+            to omit plotting the HDI.
+        add_mean : bool, optional
+            If True, add the mean prediction to the plot. Default is True.
+        **hvplot_kwargs : dict
+            Additional keyword arguments to pass to hvPlot.
+
+        Returns
+        -------
+        holoviews.core.overlay.Overlay
+            Interactive hvPlot overlay with posterior predictive distribution.
+
+        Raises
+        ------
+        ValueError
+            If the length of the target variable doesn't match the length
+            of the date column in the posterior predictive data.
+
+        Notes
+        -----
+        This function visualizes the model's predictions against the observed data.
+        The observed data is always plotted as a black line.
+        Depending on the parameters, it can also show:
+        - HDI (Highest Density Intervals) at specified levels
+        - Mean prediction line
+
+        If predicting out-of-sample, ensure that `self.y` is overwritten with the
+        corresponding non-transformed target variable.
+        """
+        import holoviews as hv
+
+        # Get posterior predictive data
+        posterior_predictive_data: Dataset = self._get_posterior_predictive_data(
+            original_scale=original_scale
+        )
+
+        # Get target data for plotting
+        target_to_plot = np.asarray(
+            self.y
+            if original_scale
+            else transform_1d_array(self.get_target_transformer().transform, self.y)
+        )
+
+        if len(target_to_plot) != len(posterior_predictive_data.date):
+            raise ValueError(
+                "The length of the target variable doesn't match the length of the date column. "
+                "If you are predicting out-of-sample, please overwrite `self.y` with the "
+                "corresponding (non-transformed) target variable."
+            )
+
+        # Prepare data for hvPlot
+        dates = np.asarray(posterior_predictive_data.date)
+        plot_data = pd.DataFrame({"date": dates})
+
+        # Set default HDI list
+        if hdi_list is None:
+            hdi_list = [0.94, 0.5]
+
+        # Add mean prediction
+        if add_mean:
+            mean_prediction = posterior_predictive_data[self.output_var].mean(
+                dim=["chain", "draw"]
+            )
+            plot_data["mean_prediction"] = np.asarray(mean_prediction)
+
+        # Add HDI bands
+        for hdi_prob in hdi_list:
+            likelihood_hdi: DataArray = az.hdi(
+                ary=posterior_predictive_data, hdi_prob=hdi_prob
+            )[self.output_var]
+            plot_data[f"hdi_{hdi_prob}_lower"] = likelihood_hdi[:, 0]
+            plot_data[f"hdi_{hdi_prob}_upper"] = likelihood_hdi[:, 1]
+
+        # Add observed target
+        ylabel = self.output_var if original_scale else f"{self.output_var} scaled"
+        plot_data[ylabel] = target_to_plot
+
+        # Create hvPlot overlay
+        overlay = hv.Overlay()
+
+        # Default hvplot_kwargs
+        default_kwargs = {
+            "x": "date",
+            "width": 1200,
+            "height": 600,
+            "legend": "top_left",
+        }
+        default_kwargs.update(hvplot_kwargs)
+
+        # Helper function to exclude specific keys from default kwargs
+        def exclude_kwargs(*keys_to_exclude):
+            return {k: v for k, v in default_kwargs.items() if k not in keys_to_exclude}
+
+        # Plot HDI bands (from most general to most specific)
+        if hdi_list:
+            # Alpha values range from 0.2 to 0.4 for increasing HDI transparency
+            # Wider bands (lower prob) are more transparent, narrower bands (higher prob) are more opaque
+            alpha_list = np.linspace(0.2, 0.4, len(hdi_list), dtype=float)
+            for hdi_prob, alpha in zip(hdi_list, alpha_list, strict=True):
+                lower_col = f"hdi_{hdi_prob}_lower"
+                upper_col = f"hdi_{hdi_prob}_upper"
+
+                area_plot = plot_data.hvplot.area(
+                    x="date",
+                    y=lower_col,
+                    y2=upper_col,
+                    label=f"{hdi_prob:.0%} HDI",
+                    alpha=alpha,
+                    # color="C0",  # Matplotlib default blue color (consistent with base class)
+                    **exclude_kwargs("x", "y", "y2", "label", "alpha", "color"),
+                )
+                overlay *= area_plot
+
+        # Plot mean prediction
+        if add_mean:
+            mean_line = plot_data.hvplot.line(
+                x="date",
+                y="mean_prediction",
+                label="Mean Prediction",
+                color="blue",
+                **exclude_kwargs("x", "y", "label", "color"),
+            )
+            overlay *= mean_line
+
+        # Plot observed data
+        observed_line = plot_data.hvplot.line(
+            x="date",
+            y=ylabel,
+            label="Observed",
+            color="black",
+            line_width=2,
+            **exclude_kwargs("x", "y", "label", "color", "line_width"),
+        )
+        overlay *= observed_line
+
+        # Set title and labels
+        overlay = overlay.opts(
+            title="Posterior Predictive Check",
             xlabel="date",
             ylabel=ylabel,
             click_policy="hide",
