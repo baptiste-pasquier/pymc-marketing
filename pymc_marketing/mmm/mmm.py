@@ -3992,6 +3992,117 @@ class CustomMMM(MMM):
 
         return overlay
 
+    def plot_errors(  # type: ignore[override]
+        self, original_scale: bool = False, **hvplot_kwargs: Any
+    ):  # -> holoviews.core.overlay.Overlay
+        """Plot model errors using hvPlot.
+
+        Computes errors as the difference between true values and predicted values,
+        then visualizes the error distribution with HDI bands and mean.
+
+        errors = true values - predicted
+
+        Parameters
+        ----------
+        original_scale : bool, optional
+            Whether to plot in the original scale. Default is False.
+        **hvplot_kwargs
+            Additional keyword arguments to pass to hvPlot.
+
+        Returns
+        -------
+        holoviews.core.overlay.Overlay
+            Interactive hvPlot overlay with error distribution.
+        """
+        import holoviews as hv
+
+        # Get errors data
+        errors = self.get_errors(original_scale=original_scale)
+
+        # Prepare data for hvPlot
+        dates = np.asarray(self.posterior_predictive.date)
+        plot_data = pd.DataFrame({"date": dates})
+
+        # Compute HDI bands for different probability levels
+        for hdi_prob in [0.94, 0.50]:
+            errors_hdi = az.hdi(ary=errors, hdi_prob=hdi_prob)
+            plot_data[f"hdi_{hdi_prob}_lower"] = (
+                errors_hdi["errors"].sel(hdi="lower").values
+            )
+            plot_data[f"hdi_{hdi_prob}_upper"] = (
+                errors_hdi["errors"].sel(hdi="higher").values
+            )
+
+        # Add mean errors
+        plot_data["errors_mean"] = errors.mean(dim=("chain", "draw")).to_numpy()
+
+        # Create hvPlot overlay
+        overlay = hv.Overlay()
+
+        # Default hvplot_kwargs
+        default_kwargs = {
+            "x": "date",
+            "width": 1200,
+            "height": 600,
+            "legend": "top_left",
+        }
+        default_kwargs.update(hvplot_kwargs)
+
+        # Helper function to exclude specific keys from default kwargs
+        def exclude_kwargs(*keys_to_exclude):
+            return {k: v for k, v in default_kwargs.items() if k not in keys_to_exclude}
+
+        # Plot HDI bands (from wider to narrower)
+        # Alpha values for different HDI levels
+        for hdi_prob, alpha in zip([0.94, 0.50], [0.2, 0.4], strict=True):
+            lower_col = f"hdi_{hdi_prob}_lower"
+            upper_col = f"hdi_{hdi_prob}_upper"
+
+            area_plot = plot_data.hvplot.area(
+                x="date",
+                y=lower_col,
+                y2=upper_col,
+                label=f"{int(100 * hdi_prob)}% HDI",
+                alpha=alpha,
+                color=mcolors.to_hex("C3"),
+                **exclude_kwargs("x", "y", "y2", "label", "alpha", "color"),
+            )
+            overlay *= area_plot
+
+        # Plot mean errors
+        mean_line = plot_data.hvplot.line(
+            x="date",
+            y="errors_mean",
+            label="Errors Mean",
+            color=mcolors.to_hex("C3"),
+            **exclude_kwargs("x", "y", "label", "color"),
+        )
+        overlay *= mean_line
+
+        # Add horizontal line at zero
+        zero_line_data = pd.DataFrame(
+            {"date": [dates.min(), dates.max()], "zero": [0.0, 0.0]}
+        )
+        zero_line = zero_line_data.hvplot.line(
+            x="date",
+            y="zero",
+            label="Zero",
+            color="black",
+            line_dash="dashed",
+            **exclude_kwargs("x", "y", "label", "color", "line_dash"),
+        )
+        overlay *= zero_line
+
+        # Set title and labels
+        overlay = overlay.opts(
+            title="Errors Posterior Distribution",
+            xlabel="date",
+            ylabel="true - predictions",
+            click_policy="hide",
+        )
+
+        return overlay
+
     def create_idata_attrs(self) -> dict[str, str]:
         """Create attributes for the inference data.
 

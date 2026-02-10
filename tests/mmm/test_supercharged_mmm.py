@@ -332,3 +332,40 @@ class TestCustomMMM:
         assert isinstance(plot_custom, hv.Overlay), (
             "Should return holoviews Overlay with custom kwargs"
         )
+
+    def test_plot_errors_hvplot(self, toy_X, toy_y):
+        """Test that plot_errors returns hvPlot overlay."""
+        import holoviews as hv
+
+        from tests.mmm.conftest import mock_fit
+
+        # Create model
+        model = CustomMMM(
+            date_column="date",
+            channel_columns=["channel_1", "channel_2"],
+            adstock=GeometricAdstock(l_max=4),
+            saturation=LogisticSaturation(),
+            monthly_seasonality=1,
+        )
+
+        # Fit the model using mock_fit
+        mock_fit(model, toy_X, toy_y)
+
+        # Sample posterior predictive
+        model.sample_posterior_predictive(toy_X, extend_idata=True, combined=True)
+
+        # Test default plot
+        plot = model.plot_errors()
+        assert isinstance(plot, hv.Overlay), "Should return holoviews Overlay"
+
+        # Test with original_scale=True
+        plot_original = model.plot_errors(original_scale=True)
+        assert isinstance(plot_original, hv.Overlay), (
+            "Should return holoviews Overlay with original_scale"
+        )
+
+        # Test with custom hvplot kwargs
+        plot_custom = model.plot_errors(width=1000, height=600)
+        assert isinstance(plot_custom, hv.Overlay), (
+            "Should return holoviews Overlay with custom kwargs"
+        )
