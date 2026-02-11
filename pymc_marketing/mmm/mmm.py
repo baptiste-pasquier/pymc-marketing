@@ -4158,9 +4158,7 @@ class CustomMMM(MMM):
         )
 
         # Function to create waterfall plot for a given date range
-        def create_waterfall(date_range):
-            start_date, end_date = date_range
-
+        def create_waterfall(start_date, end_date):
             # Filter data by date range
             filtered_data = contributions_over_time.loc[start_date:end_date]
 
@@ -4269,12 +4267,25 @@ class CustomMMM(MMM):
 
             return plot
 
-        # Use pn.bind instead of @pn.depends for better stability with Bokeh references
-        # This prevents UnknownReferenceError when the slider changes
-        bound_plot = pn.bind(create_waterfall, date_slider.param.value)
+        # Use HoloViews DynamicMap with Panel's Param stream for better Bokeh integration
+        # This provides more stable model references than pn.bind
+        from holoviews.streams import Params
+        
+        # Create a Params stream that watches the slider value
+        date_stream = Params(date_slider, ['value'])
+        
+        # Create DynamicMap that updates based on the stream
+        # The function receives the slider value as a tuple (start, end)
+        def plot_func(value):
+            if value is None:
+                value = (min_date, max_date)
+            start_date, end_date = value
+            return create_waterfall(start_date, end_date)
+        
+        dmap = hv.DynamicMap(plot_func, streams=[date_stream])
         
         # Return interactive plot with date slider
-        return pn.Column(date_slider, bound_plot)
+        return pn.Column(date_slider, dmap)
 
     def create_idata_attrs(self) -> dict[str, str]:
         """Create attributes for the inference data.
