@@ -1373,88 +1373,163 @@ class MMMModelBuilder(RegressionModelBuilder):
         original_scale: bool = True,
         figsize: tuple[int, int] = (14, 7),
         **kwargs,
-    ) -> plt.Figure:
-        """Create a waterfall plot.
+    ):
+        """Create an interactive waterfall plot using hvplot/holoviews.
 
-        The plot shows the decomposition of the target into its components.
+        The plot shows the decomposition of the target into its components with
+        a DateRangeSlider to filter the date period.
 
         Parameters
         ----------
         original_scale : bool, optional
             If True, the contributions are plotted in the original scale of the target.
         figsize : tuple[int, int], optional
-            The size of the figure. The default is (14, 7).
+            Size parameter for the plot (width, height in pixels).
+            Note: This is converted to pixels for hvplot (width, height).
         **kwargs
-            Additional keyword arguments to pass to the matplotlib `subplots` function.
+            Additional keyword arguments to pass to hvplot/holoviews.
 
         Returns
         -------
-        fig : matplotlib.figure.Figure
-            The matplotlib figure object.
+        panel.layout.Column
+            Interactive hvplot visualization with date range slider.
 
         """
-        dataframe = self.compute_mean_contributions_over_time(
+        import holoviews as hv
+        import panel as pn
+
+        # Constants for size conversion and bar rendering
+        FIGSIZE_TO_PIXELS_MULTIPLIER = 50  # Multiplier to convert figsize to pixels
+        BAR_HALF_HEIGHT = 0.4  # Half-height of waterfall bars for proper spacing
+
+        # Get contributions over time (not aggregated)
+        contributions_over_time = self.compute_mean_contributions_over_time(
             original_scale=original_scale
         )
 
-        dataframe = self._process_decomposition_components(data=dataframe)
-        total_contribution = dataframe["contribution"].sum()
+        # Get date range from the data
+        dates = contributions_over_time.index
+        min_date = pd.Timestamp(dates.min())
+        max_date = pd.Timestamp(dates.max())
 
-        fig, ax = plt.subplots(figsize=figsize, layout="constrained", **kwargs)
+        # Create DatetimeRangeSlider
+        date_slider = pn.widgets.DatetimeRangeSlider(
+            name="Date Range",
+            start=min_date,
+            end=max_date,
+            value=(min_date, max_date),
+            width=int(figsize[0] * FIGSIZE_TO_PIXELS_MULTIPLIER),
+        )
 
-        cumulative_contribution = 0
+        # Function to create waterfall plot for a given date range
+        @pn.depends(date_slider.param.value)
+        def create_waterfall(date_range):
+            start_date, end_date = date_range
 
-        for index, row in dataframe.iterrows():
-            color = "C0" if row["contribution"] >= 0 else "C3"
+            # Filter data by date range
+            filtered_data = contributions_over_time.loc[start_date:end_date]
 
-            bar_start = (
-                cumulative_contribution + row["contribution"]
-                if row["contribution"] < 0
-                else cumulative_contribution
+            if filtered_data.empty:
+                # Return empty plot if no data in range
+                return hv.Text(0, 0, "No data in selected date range").opts(
+                    width=int(figsize[0] * FIGSIZE_TO_PIXELS_MULTIPLIER),
+                    height=int(figsize[1] * FIGSIZE_TO_PIXELS_MULTIPLIER),
+                )
+
+            # Process the filtered data
+            dataframe = self._process_decomposition_components(data=filtered_data)
+            total_contribution = dataframe["contribution"].sum()
+
+            # Prepare data for waterfall chart
+            components = []
+            cumulative = 0
+
+            for idx, row in dataframe.iterrows():
+                component = row["component"]
+                contribution = row["contribution"]
+                percentage = row["percentage"]
+
+                # Calculate bar positions
+                if contribution >= 0:
+                    bar_start = cumulative
+                    cumulative += contribution
+                else:
+                    bar_start = cumulative + contribution
+
+                components.append(
+                    {
+                        "component": component,
+                        "contribution": contribution,
+                        "percentage": percentage,
+                        "bar_start": bar_start,
+                        "bar_end": bar_start + contribution,
+                        "cumulative": cumulative,
+                        "color": "#1f77b4" if contribution >= 0 else "#d62728",
+                        "y_pos": idx,
+                    }
+                )
+
+            plot_df = pd.DataFrame(components)
+
+            # Create horizontal bars using Rectangles
+            rects = []
+            labels_data = []
+
+            for _, row in plot_df.iterrows():
+                # Create rectangle for bar
+                x0 = row["bar_start"]
+                x1 = row["bar_end"]
+                y0 = row["y_pos"] - BAR_HALF_HEIGHT
+                y1 = row["y_pos"] + BAR_HALF_HEIGHT
+
+                rect = hv.Rectangles([(x0, y0, x1, y1)]).opts(
+                    color=row["color"],
+                    alpha=0.5,
+                    line_width=1,
+                )
+                rects.append(rect)
+
+                # Add label
+                label_x = (x0 + x1) / 2
+                label_y = row["y_pos"]
+                label_text = f"{row['contribution']:,.0f}\n({row['percentage']:.1f}%)"
+                labels_data.append((label_x, label_y, label_text))
+
+            # Combine all rectangles
+            bars_overlay = hv.Overlay(rects) if rects else hv.Rectangles([])
+
+            # Add text labels
+            labels = hv.Labels(
+                labels_data,
+                kdims=["x", "y"],
+                vdims=["text"],
+            ).opts(
+                text_font_size="8pt",
+                text_align="center",
+                text_baseline="middle",
             )
-            ax.barh(
-                row["component"],
-                row["contribution"],
-                left=bar_start,
-                color=color,
-                alpha=0.5,
+
+            # Set y-axis labels
+            yticks = [(i, comp) for i, comp in enumerate(dataframe["component"])]
+
+            # Create combined plot
+            plot = (bars_overlay * labels).opts(
+                xlabel="Cumulative Contribution",
+                ylabel="Components",
+                title="Response Decomposition Waterfall by Components",
+                width=int(figsize[0] * FIGSIZE_TO_PIXELS_MULTIPLIER),
+                height=int(figsize[1] * FIGSIZE_TO_PIXELS_MULTIPLIER),
+                yticks=yticks,
+                ylim=(-0.5, len(dataframe) - 0.5),
+                show_grid=True,
+                **kwargs,
             )
 
-            if row["contribution"] > 0:
-                cumulative_contribution += row["contribution"]
+            return plot
 
-            label_pos = bar_start + (row["contribution"] / 2)
+        # Return interactive plot with date slider
+        return pn.Column(date_slider, create_waterfall)
 
-            if row["contribution"] < 0:
-                label_pos = bar_start - (row["contribution"] / 2)
-
-            ax.text(
-                label_pos,
-                index,
-                f"{row['contribution']:,.0f}\n({row['percentage']:.1f}%)",
-                ha="center",
-                va="center",
-                color="black",
-                fontsize=10,
-            )
-
-        ax.set_title("Response Decomposition Waterfall by Components")
-        ax.set_xlabel("Cumulative Contribution")
-        ax.set_ylabel("Components")
-
-        xticks = np.linspace(0, total_contribution, num=11)
-        xticklabels = [f"{(x / total_contribution) * 100:.0f}%" for x in xticks]
-        ax.set_xticks(xticks)
-        ax.set_xticklabels(xticklabels)
-
-        ax.spines["right"].set_visible(False)
-        ax.spines["top"].set_visible(False)
-        ax.spines["left"].set_visible(False)
-
-        ax.set_yticks(np.arange(len(dataframe)))
-        ax.set_yticklabels(dataframe["component"])
-
-        return fig
 
 
 class BaseValidateMMM(

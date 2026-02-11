@@ -281,8 +281,16 @@ class TestBasePlotting:
         ],
     )
     def test_plots(self, plotting_mmm, func_plot_name, kwargs_plot) -> None:
+        import panel as pn
+
         func = plotting_mmm.__getattribute__(func_plot_name)
-        assert isinstance(func(**kwargs_plot), plt.Figure)
+        result = func(**kwargs_plot)
+
+        # plot_waterfall_components_decomposition now returns a Panel Column with interactive widgets
+        if func_plot_name == "plot_waterfall_components_decomposition":
+            assert isinstance(result, pn.layout.Column)
+        else:
+            assert isinstance(result, plt.Figure)
         plt.close("all")
 
 
