@@ -4206,23 +4206,20 @@ class CustomMMM(MMM):
 
             plot_df = pd.DataFrame(components)
 
-            # Create horizontal bars using Rectangles
-            rects = []
+            # Create horizontal bars using a single Rectangles object
+            # Collect all rectangle data with color information
+            rectangles_data = []
             labels_data = []
 
             for _, row in plot_df.iterrows():
-                # Create rectangle for bar
+                # Create rectangle coordinates
                 x0 = row["bar_start"]
                 x1 = row["bar_end"]
                 y0 = row["y_pos"] - BAR_HALF_HEIGHT
                 y1 = row["y_pos"] + BAR_HALF_HEIGHT
 
-                rect = hv.Rectangles([(x0, y0, x1, y1)]).opts(
-                    color=row["color"],
-                    alpha=0.5,
-                    line_width=1,
-                )
-                rects.append(rect)
+                # Add rectangle with color as a value dimension
+                rectangles_data.append((x0, y0, x1, y1, row["color"]))
 
                 # Add label
                 label_x = (x0 + x1) / 2
@@ -4230,8 +4227,19 @@ class CustomMMM(MMM):
                 label_text = f"{row['contribution']:,.0f}\n({row['percentage']:.1f}%)"
                 labels_data.append((label_x, label_y, label_text))
 
-            # Combine all rectangles
-            bars_overlay = hv.Overlay(rects) if rects else hv.Rectangles([])
+            # Create a single Rectangles object with all data
+            # Use vdims to include color information
+            if rectangles_data:
+                bars = hv.Rectangles(
+                    rectangles_data,
+                    vdims=["color"]
+                ).opts(
+                    color="color",
+                    alpha=0.5,
+                    line_width=1,
+                )
+            else:
+                bars = hv.Rectangles([])
 
             # Add text labels
             labels = hv.Labels(
@@ -4248,7 +4256,7 @@ class CustomMMM(MMM):
             yticks = [(i, comp) for i, comp in enumerate(dataframe["component"])]
 
             # Create combined plot
-            plot = (bars_overlay * labels).opts(
+            plot = (bars * labels).opts(
                 xlabel="Cumulative Contribution",
                 ylabel="Components",
                 title="Response Decomposition Waterfall by Components",
