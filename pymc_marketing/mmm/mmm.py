@@ -4174,7 +4174,6 @@ class CustomMMM(MMM):
 
             # Process the filtered data
             dataframe = self._process_decomposition_components(data=filtered_data)
-            total_contribution = dataframe["contribution"].sum()
 
             # Prepare data for waterfall chart
             components = []
