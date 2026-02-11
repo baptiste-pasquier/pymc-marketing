@@ -1457,6 +1457,7 @@ class MMMModelBuilder(RegressionModelBuilder):
         return fig
 
 
+
 class BaseValidateMMM(
     MMMModelBuilder,
     ValidateTargetColumn,

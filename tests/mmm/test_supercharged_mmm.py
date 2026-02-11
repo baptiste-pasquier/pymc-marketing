@@ -369,3 +369,35 @@ class TestCustomMMM:
         assert isinstance(plot_custom, hv.Overlay), (
             "Should return holoviews Overlay with custom kwargs"
         )
+
+    def test_plot_waterfall_hvplot(self, toy_X, toy_y):
+        """Test that plot_waterfall_components_decomposition returns Panel Column for CustomMMM."""
+        import panel as pn
+
+        from tests.mmm.conftest import mock_fit
+
+        # Create model
+        model = CustomMMM(
+            date_column="date",
+            channel_columns=["channel_1", "channel_2"],
+            adstock=GeometricAdstock(l_max=4),
+            saturation=LogisticSaturation(),
+            monthly_seasonality=1,
+        )
+
+        # Fit the model using mock_fit
+        mock_fit(model, toy_X, toy_y)
+
+        # Test waterfall plot - should return Panel Column for CustomMMM
+        plot = model.plot_waterfall_components_decomposition(original_scale=True)
+        assert isinstance(plot, pn.layout.Column), (
+            "CustomMMM should return Panel Column with DateRangeSlider"
+        )
+        
+        # Verify the Column has 2 components (slider + visualization)
+        assert len(plot) == 2, "Should have slider and visualization"
+        
+        # Verify first component is DatetimeRangeSlider
+        assert isinstance(plot[0], pn.widgets.DatetimeRangeSlider), (
+            "First component should be DatetimeRangeSlider"
+        )

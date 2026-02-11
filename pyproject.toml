@@ -44,6 +44,7 @@ dependencies = [
     "pyyaml",
     "hvplot>=0.9.0",
     "holoviews>=1.18.0",
+    "panel>=1.0.0",
 ]
 
 [project.optional-dependencies]
