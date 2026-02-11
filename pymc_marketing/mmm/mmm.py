@@ -4158,7 +4158,6 @@ class CustomMMM(MMM):
         )
 
         # Function to create waterfall plot for a given date range
-        @pn.depends(date_slider.param.value)
         def create_waterfall(date_range):
             start_date, end_date = date_range
 
@@ -4270,8 +4269,12 @@ class CustomMMM(MMM):
 
             return plot
 
+        # Use pn.bind instead of @pn.depends for better stability with Bokeh references
+        # This prevents UnknownReferenceError when the slider changes
+        bound_plot = pn.bind(create_waterfall, date_slider.param.value)
+        
         # Return interactive plot with date slider
-        return pn.Column(date_slider, create_waterfall)
+        return pn.Column(date_slider, bound_plot)
 
     def create_idata_attrs(self) -> dict[str, str]:
         """Create attributes for the inference data.
