@@ -282,13 +282,18 @@ class TestBasePlotting:
     )
     def test_plots(self, plotting_mmm, func_plot_name, kwargs_plot) -> None:
         import panel as pn
+        from pymc_marketing.mmm.mmm import CustomMMM
 
         func = plotting_mmm.__getattribute__(func_plot_name)
         result = func(**kwargs_plot)
 
-        # plot_waterfall_components_decomposition now returns a Panel Column with interactive widgets
+        # plot_waterfall_components_decomposition returns Panel Column only for CustomMMM
+        # For other classes, it returns plt.Figure
         if func_plot_name == "plot_waterfall_components_decomposition":
-            assert isinstance(result, pn.layout.Column)
+            if isinstance(plotting_mmm, CustomMMM):
+                assert isinstance(result, pn.layout.Column)
+            else:
+                assert isinstance(result, plt.Figure)
         else:
             assert isinstance(result, plt.Figure)
         plt.close("all")
